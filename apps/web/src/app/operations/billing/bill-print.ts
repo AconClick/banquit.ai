@@ -6,6 +6,7 @@ import { roundTo } from '../../core/money';
 import { TenantService } from '../../core/tenant.service';
 import { MasterRecord, MastersStore } from '../../master/masters-store';
 import { BillingApi, BillingView, PAYMENT_MODES, money } from './billing-api';
+import { DocLetterhead, DocNotes, DocPageSize } from './doc-parts';
 
 interface PrintLine {
   label: string;
@@ -25,7 +26,7 @@ interface PrintLine {
  */
 @Component({
   selector: 'app-bill-print',
-  imports: [RouterLink, DatePipe],
+  imports: [RouterLink, DatePipe, DocLetterhead, DocNotes, DocPageSize],
   template: `
     @if (view(); as v) {
       <div class="toolbar no-print">
@@ -33,11 +34,9 @@ interface PrintLine {
         <button class="primary" (click)="print()">Print</button>
       </div>
       <article class="doc" [class.watermark]="mark()" [attr.data-mark]="mark()">
+        <app-doc-page-size [size]="v.print?.paperSize" />
         <header>
-          <div>
-            <p class="org">{{ tenantName() }}</p>
-            <p class="muted">{{ property()?.['name'] }} · {{ property()?.['city'] }}, {{ property()?.['state'] }}, {{ property()?.['country'] }}</p>
-          </div>
+          <app-doc-letterhead [print]="v.print" [fallbackName]="tenantName()" [fallbackPlace]="place()" />
           <div class="title">
             <h1>{{ title() }}</h1>
             @if (v.bill?.number && doc() === 'bill') { <p><strong>{{ v.bill!.number }}</strong></p> }
@@ -57,16 +56,19 @@ interface PrintLine {
 
         <table class="list">
           <thead>
-            <tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th><th class="num">Discount</th>
-              <th class="num">Taxable</th><th class="num">Tax</th><th class="num">Total</th></tr>
+            <tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th>
+              @if (showDiscount()) { <th class="num">Discount</th> }
+              @if (showTax()) { <th class="num">Taxable</th><th class="num">Tax</th> }
+              <th class="num">Total</th></tr>
           </thead>
           <tbody>
             @for (l of lines(); track $index) {
               <tr>
                 <td>{{ l.label }}@if (l.note) { <br /><span class="muted small">{{ l.note }}</span> }</td>
                 <td class="num">{{ l.qty }}</td><td class="num">{{ money(l.rate) }}</td><td class="num">{{ money(l.amount) }}</td>
-                <td class="num">{{ l.discount ? money(l.discount) : '' }}</td><td class="num">{{ money(l.taxable) }}</td>
-                <td class="num">{{ money(l.tax) }}</td><td class="num">{{ money(l.total) }}</td>
+                @if (showDiscount()) { <td class="num">{{ l.discount ? money(l.discount) : '' }}</td> }
+                @if (showTax()) { <td class="num">{{ money(l.taxable) }}</td><td class="num">{{ money(l.tax) }}</td> }
+                <td class="num">{{ money(l.total) }}</td>
               </tr>
             }
           </tbody>
@@ -80,6 +82,7 @@ interface PrintLine {
             <dt class="grand">Total {{ currency() }}</dt><dd class="grand">{{ money(totals().total) }}</dd>
             @if (totals().advances) { <dt>Less advances</dt><dd>{{ money(totals().advances) }}</dd> }
             @if (totals().paid) { <dt>Less paid</dt><dd>{{ money(totals().paid) }}</dd> }
+            @if (totals().credited) { <dt>Less credit notes</dt><dd>{{ money(totals().credited) }}</dd> }
             @if (doc() !== 'proforma') {
               <dt class="grand">{{ totals().balance < 0 ? 'Due to guest' : 'Balance due' }}</dt>
               <dd class="grand">{{ money(totals().balance < 0 ? -totals().balance : totals().balance) }}</dd>
@@ -100,10 +103,11 @@ interface PrintLine {
           </table>
         }
 
-        @if (doc() === 'proforma') {
-          <p class="muted small">This is an estimate on guaranteed pax, not a tax invoice. The final bill uses the higher of guaranteed and actual guests, and the taxes in force on the function date.</p>
+        @if (doc() === 'proforma' && v.print?.proformaNote) {
+          <p class="muted small note">{{ v.print!.proformaNote }}</p>
         }
-        <footer><div>For {{ tenantName() }}</div><div>Guest signature</div></footer>
+        <app-doc-notes [print]="v.print" />
+        <footer><div>{{ v.print?.signatureLabel || 'Authorised signatory' }}, {{ v.print?.legalName || tenantName() }}</div><div>Guest signature</div></footer>
       </article>
     } @else if (error(); as e) {
       <p class="alert error" role="alert">{{ e }}</p>
@@ -118,7 +122,6 @@ interface PrintLine {
       color: var(--text); opacity: 0.06; transform: rotate(-24deg); pointer-events: none; }
     header { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 2px solid var(--text); padding-bottom: 0.75rem; margin-bottom: 1rem; }
     header p { margin: 0; }
-    .org { font-weight: 700; font-size: 1.15rem; }
     .title { text-align: right; }
     h1 { margin: 0 0 0.2rem; font-size: 1.3rem; letter-spacing: 0.02em; }
     h2 { font-size: 1rem; margin: 1.25rem 0 0.4rem; }
@@ -129,6 +132,7 @@ interface PrintLine {
     .list th, .list td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
     .list th { font-weight: 500; color: var(--muted); font-size: 0.8rem; }
     .small { font-size: 0.8rem; }
+    .note { white-space: pre-line; margin-top: 1rem; }
     .sums { display: flex; justify-content: flex-end; margin-top: 1rem; }
     .sums dl { display: grid; grid-template-columns: auto auto; gap: 0.2rem 2rem; margin: 0; min-width: 300px; font-variant-numeric: tabular-nums; }
     .sums dt { color: var(--muted); }
@@ -168,10 +172,17 @@ export class BillPrint implements OnInit {
   protected readonly currency = computed(() => this.view()?.bill?.currency ?? this.view()?.currency ?? String(this.property()?.['currency'] ?? ''));
   protected readonly decimals = computed(() => (this.doc() === 'bill' ? this.view()?.bill?.decimals : undefined) ?? this.view()?.decimals ?? 2);
   protected readonly money = (n: number | null | undefined) => money(n, this.decimals());
+  protected readonly place = computed(() => {
+    const p = this.property();
+    return p ? `${p['name']} · ${p['city']}, ${p['state']}, ${p['country']}` : '';
+  });
+  protected readonly showDiscount = computed(() => this.view()?.print?.showDiscountColumn !== false && this.doc() === 'bill');
+  protected readonly showTax = computed(() => this.view()?.print?.showTaxColumn !== false);
   protected readonly title = computed(() => {
-    if (this.doc() === 'proforma') return 'Proforma invoice';
+    const print = this.view()?.print;
+    if (this.doc() === 'proforma') return print?.proformaTitle || 'Proforma invoice';
     const s = this.view()?.bill?.status;
-    return s === 'draft' ? 'Draft bill' : s === 'void' ? 'Bill (void)' : 'Tax invoice';
+    return s === 'draft' ? 'Draft bill' : s === 'void' ? 'Bill (void)' : print?.billTitle || 'Tax invoice';
   });
   protected readonly mark = computed(() => {
     if (this.doc() === 'proforma') return 'ESTIMATE';
@@ -204,7 +215,7 @@ export class BillPrint implements OnInit {
     const round2 = (n: number) => roundTo(n, this.decimals());
     if (this.doc() === 'proforma') {
       const p = v.proforma;
-      return { taxable: p.taxable, taxes: p.taxes, roundOff: p.roundOff, total: p.total, advances: p.advances, paid: 0, balance: round2(p.total - p.advances) };
+      return { taxable: p.taxable, taxes: p.taxes, roundOff: p.roundOff, total: p.total, advances: p.advances, paid: 0, credited: 0, balance: round2(p.total - p.advances) };
     }
     return v.bill!;
   });

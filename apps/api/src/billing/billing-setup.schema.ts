@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
+import type { PrintSetup } from './print-setup.js';
 
 /** Documents that take a number from a series. */
 export const SERIES_DOCUMENTS = ['bill', 'creditNote'] as const;
@@ -27,6 +28,10 @@ export class BillingSetup {
 
   @Prop({ type: Object, required: true })
   series: Record<SeriesDocument, Series>;
+
+  /** Print Setup: logo, header, titles, footer and columns. */
+  @Prop({ type: Object })
+  print?: Partial<PrintSetup>;
 }
 
 export type BillingSetupDocument = HydratedDocument<BillingSetup>;

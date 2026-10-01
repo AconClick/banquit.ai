@@ -5,16 +5,19 @@ import { MastersService } from '../masters/masters.service.js';
 import { currencyDecimals } from '../pricing/money.js';
 import { Counter } from '../reservations/reservation.schema.js';
 import { BillingSetup, SERIES_DOCUMENTS, type Series, type SeriesDocument } from './billing-setup.schema.js';
+import { DEFAULT_PRINT, mergePrint, type PrintSetup } from './print-setup.js';
 import { DEFAULT_FY_START_MONTH, DEFAULT_SERIES, SERIES_LABELS, counterName, expandPrefix, financialYear, formatNumber, seriesProblems } from './series.js';
 
 export interface BillingSetupValues {
   fyStartMonth: number;
   series: Record<SeriesDocument, Series>;
+  print: PrintSetup;
 }
 
 export interface BillingSetupInput {
   fyStartMonth?: number;
   series?: Partial<Record<SeriesDocument, Series>>;
+  print?: Partial<PrintSetup>;
   /** Start the current year's series at this number (moving from another system). Never lower than the next number. */
   nextNumbers?: Partial<Record<SeriesDocument, number>>;
 }
@@ -22,9 +25,10 @@ export interface BillingSetupInput {
 const defaults = (): BillingSetupValues => ({
   fyStartMonth: DEFAULT_FY_START_MONTH,
   series: { bill: { ...DEFAULT_SERIES.bill }, creditNote: { ...DEFAULT_SERIES.creditNote } },
+  print: { ...DEFAULT_PRINT },
 });
 
-/** Per-property billing setup: Series Setup now; print layout and GST details join it later. */
+/** Per-property billing setup: Series Setup and Print Setup; GST details join it later. */
 @Injectable()
 export class BillingSetupService {
   constructor(
@@ -40,6 +44,7 @@ export class BillingSetupService {
     return {
       fyStartMonth: saved.fyStartMonth ?? d.fyStartMonth,
       series: Object.fromEntries(SERIES_DOCUMENTS.map((k) => [k, { ...d.series[k], ...saved.series?.[k] }])) as Record<SeriesDocument, Series>,
+      print: { ...d.print, ...saved.print },
     };
   }
 
@@ -77,6 +82,7 @@ export class BillingSetupService {
       problems.push(...seriesProblems(SERIES_LABELS[doc], s));
       series[doc] = { prefix: s.prefix, digits: s.digits, resetYearly: s.resetYearly };
     }
+    const print = mergePrint(current.print, input.print, problems);
     if (expandPrefix(series.bill.prefix, '2026-27') === expandPrefix(series.creditNote.prefix, '2026-27')) {
       problems.push('Bills and credit notes need different prefixes.');
     }
@@ -95,13 +101,18 @@ export class BillingSetupService {
     }
     if (problems.length) throw new BadRequestException(problems);
 
-    await this.setups.findOneAndUpdate({ tenantId, propertyId }, { $set: { fyStartMonth, series } }, { upsert: true });
+    await this.setups.findOneAndUpdate({ tenantId, propertyId }, { $set: { fyStartMonth, series, print } }, { upsert: true });
     for (const [doc, n] of starts) {
       await this.counters.findOneAndUpdate(
         { tenantId, name: counterName(doc, propertyId, series[doc], fy) }, { $max: { seq: n - 1 } }, { upsert: true },
       );
     }
     return this.view(tenantId, propertyId);
+  }
+
+  /** How the property's documents are printed. */
+  async print(tenantId: Types.ObjectId, propertyId: string) {
+    return (await this.values(tenantId, propertyId)).print;
   }
 
   /** Takes the next number in the property's series for a document dated today at the property. */
