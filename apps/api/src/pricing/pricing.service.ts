@@ -51,7 +51,9 @@ export class PricingService {
     await this.property(tenantId, propertyId);
     if (!input || typeof input !== 'object') throw new BadRequestException('Invalid settings.');
     const saved = await this.settingsModel.findOne({ tenantId, propertyId });
-    const values = withDefaults({ ...saved?.values, ...input });
+    // Only the fields sent are changed (the DTO carries the rest as undefined).
+    const changes = Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined));
+    const values = withDefaults({ ...saved?.values, ...changes });
     const problems = settingsProblems(values);
     for (const [group, ids] of Object.entries(values.defaultTaxIds)) {
       for (const id of ids) {
