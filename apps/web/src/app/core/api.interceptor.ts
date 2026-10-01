@@ -14,7 +14,8 @@ export const apiInterceptor: HttpInterceptorFn = (req, next) => {
   let headers = req.headers;
   const domain = tenant.headerDomain();
   if (domain) headers = headers.set('X-Tenant', domain);
-  const token = session.token();
+  // A request that carries its own token (the support console) keeps it.
+  const token = req.headers.has('Authorization') ? null : session.token();
   if (token) headers = headers.set('Authorization', `Bearer ${token}`);
 
   return next(req.clone({ headers })).pipe(

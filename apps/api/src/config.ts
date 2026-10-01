@@ -26,4 +26,6 @@ export const authRules = {
   otpMaxAttempts: 3,
   otpResendSeconds: 30,
   resetLinkMinutes: 30,
+  /** A support session ends after this many hours; a new reason is needed to enter again. */
+  supportSessionHours: 4,
 };

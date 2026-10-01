@@ -69,6 +69,15 @@ export class TenantService {
     return res;
   }
 
+  /** Remembers the domain without the Domain step (used when support enters on localhost). */
+  remember(subdomain: string) {
+    try {
+      localStorage.setItem(DOMAIN_KEY, subdomain);
+    } catch {
+      // ignore
+    }
+  }
+
   forget() {
     try {
       localStorage.removeItem(DOMAIN_KEY);

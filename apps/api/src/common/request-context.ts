@@ -4,6 +4,7 @@ import type { TenantDocument } from '../tenants/tenant.schema.js';
 import type { UserDocument } from '../users/user.schema.js';
 import type { RoleDocument } from '../roles/role.schema.js';
 import type { Activity } from '../roles/permissions.js';
+import type { SupportSessionDocument } from '../support/support.schema.js';
 import { TenantsService } from '../tenants/tenants.service.js';
 import { TENANT_STATUS_MESSAGES } from '../tenants/subdomain-rules.js';
 
@@ -11,6 +12,8 @@ export interface AuthContext {
   user: UserDocument;
   role: RoleDocument;
   activity?: Activity;
+  /** Set when Banquet.ai support is in the tenant; user and role are then stand-ins, never stored. */
+  support?: SupportSessionDocument;
 }
 
 export interface AppRequest extends Request {

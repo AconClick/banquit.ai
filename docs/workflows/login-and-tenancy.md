@@ -152,7 +152,7 @@ Implementation engineers do **not** share the `entp` password. Each engineer get
 
 Banquet.ai's own support team sometimes needs to get into a client's account after go-live (to investigate a problem, fix data, or help with setup). They do **not** use `entp` or any user created inside the tenant.
 
-**[Proposed default]**
+**[Built, with the proposed defaults]** The console is at `/support` on the common address (e.g. `app.banquet.ai/support`); it can move to `admin.banquet.ai` later without changes to the rules below. Support staff accounts are created by Banquet.ai's platform admin (`POST /api/platform/support-users`); the person gets a temporary password by email and sets their own on first login.
 
 1. **Support staff have their own Banquet.ai accounts**, managed in a separate Banquet.ai admin console (e.g. `admin.banquet.ai`), not in any tenant. These logins always need an OTP.
 2. **Entering a tenant.** From the admin console, a support person picks the tenant and enters a **reason** (and ticket number if any). The system opens that tenant's app in a **support session**.
@@ -161,11 +161,12 @@ Banquet.ai's own support team sometimes needs to get into a client's account aft
 5. **Visible to the client.** The client's admin sees every support session (who, when, reason, what was changed) in a **Support Access Log** in the Master panel, and gets an email when one starts.
 6. **Client control.** A Master Settings option, **Banquet.ai support access**, decides how support gets in:
    - **Allowed** (default): support can enter at any time; the client is notified.
-   - **Ask each time**: the client's admin must approve each request in the app (or by a link in the email) before the session opens.
+   - **Ask each time**: the client's admin must approve each request in the app before the session opens. (Approving by a link in the email is not built yet; the email points to Master › Support Access.)
    - **Emergency override**: a Banquet.ai manager can still enter under "Ask each time" if the client cannot be reached, and the client is notified immediately.
 7. **Support users never appear** in the tenant's User Management list and do not count towards any user licence limit.
 
-**Open question:** should support sessions be read-only by default, with changes allowed only after the support person explicitly switches to edit mode (with a second reason)?
+8. **Read-only by default [Built default].** A support session can only look. To change anything the support person switches to **edit mode** and gives a second reason; the switch and every change after it (what was changed and when, not the data itself) are listed in the client's Support Access log.
+9. A support session cannot change any real user's password or session, cannot change the Support Access setting, and works only on the client it was opened for.
 
 ## 7. Security rules
 
@@ -182,4 +183,4 @@ Banquet.ai's own support team sometimes needs to get into a client's account aft
 
 ## 8. Open questions
 
-1. Read-only support sessions by default (see section 6)?
+1. ~~Read-only support sessions by default (see section 6)?~~ Built as read-only by default, with edit mode after a second reason. Can be changed if Banquet.ai prefers otherwise.
