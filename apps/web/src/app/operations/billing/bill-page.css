@@ -12,6 +12,8 @@ th { font-weight: 500; color: var(--muted); font-size: 0.8rem; white-space: nowr
 tr.new td { background: var(--info-bg); }
 tr.detail td { background: var(--bg); }
 .tags { display: flex; gap: 0.3rem; flex-wrap: wrap; margin-top: 0.2rem; align-items: center; }
+.tags .pill { white-space: nowrap; }
+.lines td:first-child { min-width: 11rem; }
 .w-num { width: 6.5rem; text-align: right; padding: 0.35rem 0.45rem; }
 .w-label { width: 100%; min-width: 12rem; padding: 0.35rem 0.45rem; }
 .small { font-size: 0.8rem; }
@@ -45,5 +47,6 @@ button.danger-btn { background: var(--danger); border-color: var(--danger); }
 .history ul { margin: 0.5rem 0 0; padding-left: 1.2rem; }
 @media (max-width: 760px) {
   .bottom { flex-direction: column; }
+  .bill-discount { flex: 0 0 auto; }
   .totals { min-width: 0; }
 }

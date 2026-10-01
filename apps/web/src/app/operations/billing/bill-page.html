@@ -91,7 +91,7 @@
                   }
                   <div class="tags">
                     <span class="pill">{{ sourceLabels[r.source] }}</span>
-                    <span class="pill">{{ aTypes[r.aType] }}</span>
+                    @if (r.source !== 'package') { <span class="pill">{{ aTypes[r.aType] }}</span> }
                     @if (r.taxInclusive) { <span class="pill">incl. tax</span> }
                     @if (r.remark) { <span class="muted small">{{ r.remark }}</span> }
                   </div>
