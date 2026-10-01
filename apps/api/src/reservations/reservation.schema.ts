@@ -1,0 +1,155 @@
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { HydratedDocument, Types } from 'mongoose';
+
+export const RESERVATION_STATUSES = [
+  'enquiry', 'provisional', 'waitlisted', 'confirmed', 'inFunction', 'completed', 'billed', 'cancelled', 'lost',
+] as const;
+export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
+
+/** Statuses that hold the hall, so no other booking or block may overlap them. */
+export const HOLDING_STATUSES: ReservationStatus[] = ['provisional', 'confirmed', 'inFunction'];
+
+/** A hall held from start to end, in the hotel's local time ("YYYY-MM-DDTHH:mm"). */
+@Schema({ _id: false })
+export class HallSlot {
+  @Prop({ required: true })
+  hallId: string;
+
+  @Prop({ required: true })
+  start: string;
+
+  @Prop({ required: true })
+  end: string;
+}
+
+@Schema({ _id: false })
+export class StatusChange {
+  /** null for the first entry, when the booking was created. */
+  @Prop({ type: String, default: null })
+  from: ReservationStatus | null;
+
+  @Prop({ type: String, required: true })
+  to: ReservationStatus;
+
+  @Prop({ required: true })
+  at: Date;
+
+  @Prop({ required: true })
+  byUserId: string;
+
+  @Prop()
+  reasonId?: string;
+
+  @Prop()
+  note?: string;
+}
+
+@Schema({ timestamps: true })
+export class Reservation {
+  @Prop({ type: Types.ObjectId, required: true })
+  tenantId: Types.ObjectId;
+
+  @Prop({ required: true })
+  propertyId: string;
+
+  /** Booking number from the tenant's reservation series, e.g. R-000042. */
+  @Prop({ required: true })
+  number: string;
+
+  @Prop({ type: String, required: true })
+  status: ReservationStatus;
+
+  /** Company or individual hosting the event. */
+  @Prop({ required: true, trim: true })
+  hostName: string;
+
+  @Prop({ default: '', trim: true })
+  contactName: string;
+
+  @Prop({ required: true, trim: true })
+  phone: string;
+
+  @Prop({ default: '', trim: true, lowercase: true })
+  email: string;
+
+  @Prop({ required: true })
+  functionTypeId: string;
+
+  @Prop()
+  seatingStyleId?: string;
+
+  @Prop({ required: true })
+  guaranteedPax: number;
+
+  @Prop({ required: true })
+  expectedMaxPax: number;
+
+  @Prop()
+  actualPax?: number;
+
+  @Prop({ type: [HallSlot], required: true })
+  slots: HallSlot[];
+
+  /** Provisional bookings: the date by which the guest must confirm. */
+  @Prop()
+  optionDate?: string;
+
+  @Prop({ default: '', trim: true })
+  notes: string;
+
+  @Prop({ type: [StatusChange], default: [] })
+  history: StatusChange[];
+}
+
+export type ReservationDocument = HydratedDocument<Reservation>;
+export const ReservationSchema = SchemaFactory.createForClass(Reservation);
+ReservationSchema.index({ tenantId: 1, number: 1 }, { unique: true });
+ReservationSchema.index({ tenantId: 1, 'slots.hallId': 1, 'slots.start': 1 });
+
+/** Hall closed for everyone (maintenance, fumigation, etc.). Not a reservation. */
+@Schema({ timestamps: true })
+export class HallBlock {
+  @Prop({ type: Types.ObjectId, required: true })
+  tenantId: Types.ObjectId;
+
+  @Prop({ required: true })
+  hallId: string;
+
+  @Prop({ required: true })
+  start: string;
+
+  @Prop({ required: true })
+  end: string;
+
+  @Prop({ required: true })
+  reasonId: string;
+
+  @Prop({ default: '', trim: true })
+  notes: string;
+
+  @Prop({ default: true })
+  active: boolean;
+
+  @Prop({ required: true })
+  byUserId: string;
+}
+
+export type HallBlockDocument = HydratedDocument<HallBlock>;
+export const HallBlockSchema = SchemaFactory.createForClass(HallBlock);
+HallBlockSchema.index({ tenantId: 1, hallId: 1, start: 1 });
+
+/** Per-tenant number series (Series Setup will make the prefix configurable). */
+@Schema()
+export class Counter {
+  @Prop({ type: Types.ObjectId, required: true })
+  tenantId: Types.ObjectId;
+
+  @Prop({ required: true })
+  name: string;
+
+  @Prop({ default: 0 })
+  seq: number;
+}
+
+export const CounterSchema = SchemaFactory.createForClass(Counter);
+CounterSchema.index({ tenantId: 1, name: 1 }, { unique: true });

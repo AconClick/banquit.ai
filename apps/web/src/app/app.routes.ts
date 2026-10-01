@@ -5,7 +5,7 @@ import { PasswordReset } from './login/password-reset';
 import { MasterPage } from './master/master-page';
 import { RolesPage } from './master/roles-page';
 import { UsersPage } from './master/users-page';
-import { OperationsHome } from './operations/operations-home';
+import { Diary } from './operations/diary/diary';
 import { Shell } from './shell';
 
 export const routes: Routes = [
@@ -16,7 +16,7 @@ export const routes: Routes = [
     path: 'operations',
     component: Shell,
     canActivate: [activityGuard('operations')],
-    children: [{ path: '', component: OperationsHome, title: 'Operations · Banquet.ai' }],
+    children: [{ path: '', component: Diary, title: 'Reservation Diary · Banquet.ai' }],
   },
   {
     path: 'master',

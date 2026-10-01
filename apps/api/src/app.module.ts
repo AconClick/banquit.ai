@@ -9,6 +9,9 @@ import { TenantMiddleware } from './common/request-context.js';
 import { MasterRecord, MasterRecordSchema } from './masters/master-record.schema.js';
 import { MastersController } from './masters/masters.controller.js';
 import { MastersService } from './masters/masters.service.js';
+import { Counter, CounterSchema, HallBlock, HallBlockSchema, Reservation, ReservationSchema } from './reservations/reservation.schema.js';
+import { ReservationsController } from './reservations/reservations.controller.js';
+import { ReservationsService } from './reservations/reservations.service.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
 import { PlatformController, TenantsController } from './platform/platform.controller.js';
 import { ProvisioningService } from './platform/provisioning.service.js';
@@ -29,12 +32,15 @@ import { UsersService } from './users/users.service.js';
       { name: User.name, schema: UserSchema },
       { name: Role.name, schema: RoleSchema },
       { name: MasterRecord.name, schema: MasterRecordSchema },
+      { name: Reservation.name, schema: ReservationSchema },
+      { name: HallBlock.name, schema: HallBlockSchema },
+      { name: Counter.name, schema: CounterSchema },
     ]),
     JwtModule.register({ secret: config.jwtSecret, signOptions: { expiresIn: `${authRules.maxSessionHours}h` } }),
     NotificationsModule,
   ],
-  controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController],
-  providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, AuthGuard],
+  controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController],
+  providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, ReservationsService, AuthGuard],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
