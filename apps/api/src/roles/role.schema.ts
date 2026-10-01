@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Types } from 'mongoose';
+import { ALL_PERMISSIONS } from './permissions.js';
 
 @Schema({ timestamps: true })
 export class Role {
@@ -25,4 +26,8 @@ export const RoleSchema = SchemaFactory.createForClass(Role);
 RoleSchema.index({ tenantId: 1, nameKey: 1 }, { unique: true });
 RoleSchema.pre('validate', function () {
   this.nameKey = this.name.trim().toLowerCase();
+});
+// Built-in roles always grant every permission, including ones added after the tenant was set up.
+RoleSchema.post('init', function () {
+  if (this.builtIn) this.permissions = [...ALL_PERMISSIONS];
 });

@@ -1,7 +1,6 @@
 :host { display: block; }
 .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
 .toolbar h1 { margin: 0 0.5rem 0 0; }
-label.inline { flex-direction: row; align-items: center; gap: 0.4rem; margin: 0; flex: 0 0 auto; }
 .week { display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap; }
 .week button { padding: 0.35rem 0.6rem; }
 .week input { padding: 0.3rem 0.4rem; }

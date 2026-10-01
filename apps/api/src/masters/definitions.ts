@@ -67,6 +67,12 @@ const place: FieldDef[] = [
   { key: 'country', label: 'Country', type: 'text', required: true, maxLength: 80, list: true },
 ];
 
+/** Items shared by the whole group unless limited to some properties. */
+const onlyAt: FieldDef = {
+  key: 'propertyIds', label: 'Only at these properties', type: 'refs', refKind: 'property', default: [],
+  hint: 'Leave all unticked to offer it at every property. Prices and taxes per property are set in Rate & Tax Mapping.',
+};
+
 /** A master that is just one line of text, e.g. Seating Style or Cancellation Reason. */
 const simple = (kind: string, label: string, singular: string, group: MasterDef['group']): MasterDef => ({
   kind, label, singular, group, display: 'description', unique: 'description', fields: [description()],
@@ -151,6 +157,7 @@ export const MASTERS: MasterDef[] = [
       { key: 'aType', label: 'A-Type', type: 'enum', required: true, options: { package: 'Package', alacarte: 'Ala Carte', services: 'Services' }, list: true },
       { key: 'incomeExpenseHeadId', label: 'Inc / Exp head', type: 'ref', refKind: 'incomeExpenseHead', required: true },
       { key: 'fixedCostPercent', label: 'Fixed cost %', type: 'number', min: 0, max: 100, default: 0 },
+      onlyAt,
     ],
   },
   {
@@ -162,6 +169,7 @@ export const MASTERS: MasterDef[] = [
       { key: 'unitId', label: 'Unit', type: 'ref', refKind: 'unit', required: true, list: true },
       { key: 'rate', label: 'Rate', type: 'number', required: true, min: 0, list: true },
       { key: 'incomeExpenseHeadId', label: 'Inc / Exp head', type: 'ref', refKind: 'incomeExpenseHead', required: true },
+      onlyAt,
     ],
   },
   {
