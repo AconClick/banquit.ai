@@ -162,6 +162,9 @@
         </div>
       } @else {
         <a class="open" [routerLink]="['/operations/bookings', r.id]">Open booking: menu, proforma and advances ›</a>
+        @if (['inFunction', 'completed', 'billed'].includes(r.status)) {
+          <a class="open" [routerLink]="['/operations/billing', r.id]">Bill ›</a>
+        }
         <div class="status-actions">
           @if (editable()) { <button (click)="startEdit()">Change details</button> }
           @for (s of nextStatuses(); track s) {

@@ -6,6 +6,9 @@
     </div>
     <div class="head-actions">
       <a class="button" [routerLink]="['/operations/bookings', r.id, 'sheet']">Function sheet</a>
+      @if (['inFunction', 'completed', 'billed'].includes(r.status)) {
+        <a class="button" [routerLink]="['/operations/billing', r.id]">Bill</a>
+      }
     </div>
   </div>
 
