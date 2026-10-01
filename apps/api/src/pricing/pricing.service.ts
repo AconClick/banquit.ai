@@ -138,9 +138,9 @@ export class PricingService {
       taxIds: input.taxIds === null ? null : [...new Set(input.taxIds)],
     };
     if (values.offered && values.rate === null && values.taxInclusive === null && values.taxIds === null) {
-      await this.rates.deleteOne({ tenantId, propertyId, kind, itemId });
+      await this.rates.deleteOne({ tenantId, propertyId, kind: kind as PricedKind, itemId });
     } else {
-      await this.rates.updateOne({ tenantId, propertyId, kind, itemId }, { $set: values }, { upsert: true });
+      await this.rates.updateOne({ tenantId, propertyId, kind: kind as PricedKind, itemId }, { $set: values }, { upsert: true });
     }
     return (await this.rateSheet(tenantId, propertyId)).find((i) => i.kind === kind && i.id === itemId)!;
   }
