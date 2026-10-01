@@ -20,6 +20,9 @@
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
     "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "stress:seed": "vitest run --config ./vitest.config.stress.ts test/stress/seed.stress.ts",
+    "stress:fuzz": "vitest run --config ./vitest.config.stress.ts test/stress/bill-math.stress.ts",
+    "stress:load": "node test/stress/load.mjs",
     "seed": "node dist/seed.js"
   },
   "dependencies": {
