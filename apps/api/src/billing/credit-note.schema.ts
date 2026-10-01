@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
+import type { EInvoiceRecord } from './bill.schema.js';
 import type { CreditedLine, CreditTotals } from './credit-math.js';
 
 export const CREDIT_NOTE_STATUSES = ['issued', 'cancelled'] as const;
@@ -67,6 +68,9 @@ export class CreditNote {
 
   @Prop()
   cancelReason?: string;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null })
+  eInvoice: EInvoiceRecord | null;
 }
 
 export type CreditNoteDocument = HydratedDocument<CreditNote>;

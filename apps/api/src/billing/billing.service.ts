@@ -7,6 +7,8 @@ import { rounder } from '../pricing/money.js';
 import { calculateBill, round2, type AType, type BillLineInput, type BillTotals, type Discount, type LineSource, type TaxRate } from './bill-engine.js';
 import { Bill, BillDocument, BillLine, BillStatus, PAYMENT_MODES, type PaymentMode } from './bill.schema.js';
 import { BillingSetupService } from './billing-setup.service.js';
+import { gstInvoice, gstSetupProblems, type GstBuyer } from './gst.js';
+import QRCode from 'qrcode';
 import { BOOKING_SOURCE, type BillingBooking, type BookingSource } from './booking-source.js';
 
 export { financialYear } from './series.js';
@@ -47,6 +49,8 @@ export interface PaymentInput {
 const BILLABLE: string[] = ['confirmed', 'inFunction', 'completed'];
 /** Lines added on the bill (running charges, hall hire, licence) can be changed freely while drafting. */
 const ADDED: LineSource[] = ['running', 'hallHire', 'liquorLicence'];
+export const EMPTY_BUYER: GstBuyer = { gstin: '', legalName: '', address: '', location: '', pincode: '', placeOfSupply: '' };
+
 const CHANGED_ELSEWHERE = 'This bill was changed by someone else. Reload it and try again.';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isMoney = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
@@ -222,6 +226,9 @@ export class BillingService {
     for (const l of bill.lines) {
       if (l.source === 'package' && (l.actualPax === null || l.actualPax === undefined)) problems.push(`${l.label}: enter the actual pax.`);
     }
+    // A GST invoice needs the property's registration; the guest's details are checked when saved.
+    const { enabled: gstOn, ...gstSetup } = await this.setup.gst(tenantId, bill.propertyId);
+    if (gstOn) problems.push(...gstSetupProblems({ ...gstSetup, enabled: true }).map((p) => `${p} (Master › Billing Setup)`));
     if (problems.length) throw new BadRequestException(problems);
 
     const rates = await this.taxRates(tenantId, bill);
@@ -235,7 +242,10 @@ export class BillingService {
     const locked = await this.bills.findOneAndUpdate(
       { _id: bill._id, tenantId, status: 'draft', __v: bill.__v },
       {
-        $set: { status, finalisedAt: new Date(), advances, taxRates: Object.fromEntries(rates), totals: this.storedTotals(totals) },
+        $set: {
+          status, finalisedAt: new Date(), advances, taxRates: Object.fromEntries(rates), totals: this.storedTotals(totals),
+          gst: gstOn ? gstSetup : null, ...(gstOn && !bill.buyer ? { buyer: { ...EMPTY_BUYER, placeOfSupply: gstSetup.stateCode } } : {}),
+        },
         $inc: { __v: 1 },
       },
       { returnDocument: 'after' },
@@ -302,6 +312,9 @@ export class BillingService {
     if (bill.status === 'void') throw new BadRequestException('This bill is already void.');
     if (bill.payments.length > 0 || bill.status === 'settled') {
       throw new BadRequestException('Payments have been taken against this bill, so it cannot be voided. Refund them first.');
+    }
+    if (bill.eInvoice?.status === 'generated') {
+      throw new BadRequestException('This bill has an e-invoice (IRN). Cancel the e-invoice first, or issue a credit note.');
     }
     if (bill.credits.some((c) => c.status === 'issued')) {
       throw new BadRequestException('Credit notes have been issued against this bill, so it cannot be voided. Cancel them first.');
@@ -546,8 +559,29 @@ export class BillingService {
       date: bill.date ?? null,
       credited,
       creditNotes: bill.credits.map((c) => ({ id: c.id, number: c.number ?? null, date: c.date, total: c.total, status: c.status })),
+      ...(await this.gstView(tenantId, bill, totals)),
       history: bill.history.map((h) => ({ action: h.action, at: h.at, byUserId: h.byUserId, note: h.note ?? null })),
       ...this.withLineDetails(totals, bill.lines),
+    };
+  }
+
+  /** GST details: the guest's, and for a final GST bill the invoice split and any e-invoice. */
+  private async gstView(tenantId: Types.ObjectId, bill: BillDocument, totals: BillTotals) {
+    const gstEnabled = bill.status === 'draft' ? (await this.setup.gst(tenantId, bill.propertyId)).enabled : !!bill.gst;
+    if (!gstEnabled) return { gstEnabled, buyer: null, gst: null };
+    const setup = bill.gst ?? (await this.setup.gst(tenantId, bill.propertyId));
+    const buyer = bill.buyer ?? { ...EMPTY_BUYER, placeOfSupply: setup.stateCode };
+    if (!bill.gst) return { gstEnabled, buyer, gst: null };
+    const rates = new Map(Object.entries(bill.taxRates ?? {}));
+    const e = bill.eInvoice;
+    return {
+      gstEnabled, buyer,
+      gst: {
+        seller: { gstin: setup.gstin, legalName: setup.legalName, tradeName: setup.tradeName, address1: setup.address1, address2: setup.address2, location: setup.location, pincode: setup.pincode, stateCode: setup.stateCode },
+        eInvoiceOn: setup.eInvoice,
+        invoice: gstInvoice(totals.lines, rates, setup, buyer, totals.roundOff),
+        eInvoice: e ? { ...e, qr: e.status === 'generated' ? await QRCode.toDataURL(e.signedQr, { errorCorrectionLevel: 'M', margin: 1, width: 220 }) : null } : null,
+      },
     };
   }
 

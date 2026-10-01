@@ -5,19 +5,23 @@ import { MastersService } from '../masters/masters.service.js';
 import { currencyDecimals } from '../pricing/money.js';
 import { Counter } from '../reservations/reservation.schema.js';
 import { BillingSetup, SERIES_DOCUMENTS, type Series, type SeriesDocument } from './billing-setup.schema.js';
+import { DEFAULT_GST, GST_STATES, type GstSetup } from './gst.js';
+import { mergeGst, type GstSetupInput } from './gst-setup.js';
 import { DEFAULT_PRINT, mergePrint, type PrintSetup } from './print-setup.js';
-import { DEFAULT_FY_START_MONTH, DEFAULT_SERIES, SERIES_LABELS, counterName, expandPrefix, financialYear, formatNumber, seriesProblems } from './series.js';
+import { DEFAULT_FY_START_MONTH, DEFAULT_SERIES, SERIES_LABELS, counterName, expandPrefix, financialYear, formatNumber, GST_NUMBER_MAX, seriesProblems } from './series.js';
 
 export interface BillingSetupValues {
   fyStartMonth: number;
   series: Record<SeriesDocument, Series>;
   print: PrintSetup;
+  gst: GstSetup;
 }
 
 export interface BillingSetupInput {
   fyStartMonth?: number;
   series?: Partial<Record<SeriesDocument, Series>>;
   print?: Partial<PrintSetup>;
+  gst?: GstSetupInput;
   /** Start the current year's series at this number (moving from another system). Never lower than the next number. */
   nextNumbers?: Partial<Record<SeriesDocument, number>>;
 }
@@ -26,9 +30,10 @@ const defaults = (): BillingSetupValues => ({
   fyStartMonth: DEFAULT_FY_START_MONTH,
   series: { bill: { ...DEFAULT_SERIES.bill }, creditNote: { ...DEFAULT_SERIES.creditNote } },
   print: { ...DEFAULT_PRINT },
+  gst: { ...DEFAULT_GST, sac: { ...DEFAULT_GST.sac }, taxRoles: {} },
 });
 
-/** Per-property billing setup: Series Setup and Print Setup; GST details join it later. */
+/** Per-property billing setup: Series Setup, Print Setup and GST. */
 @Injectable()
 export class BillingSetupService {
   constructor(
@@ -45,6 +50,7 @@ export class BillingSetupService {
       fyStartMonth: saved.fyStartMonth ?? d.fyStartMonth,
       series: Object.fromEntries(SERIES_DOCUMENTS.map((k) => [k, { ...d.series[k], ...saved.series?.[k] }])) as Record<SeriesDocument, Series>,
       print: { ...d.print, ...saved.print },
+      gst: { ...d.gst, ...saved.gst, sac: { ...d.gst.sac, ...saved.gst?.sac }, taxRoles: { ...saved.gst?.taxRoles } },
     };
   }
 
@@ -66,7 +72,7 @@ export class BillingSetupService {
       const seq = (await this.current(tenantId, doc, propertyId, values.series[doc], fy)) + 1;
       next[doc] = { seq, number: formatNumber(values.series[doc], fy, seq) };
     }
-    return { propertyId, ...values, financialYear: fy, next, ...(await this.money(tenantId, propertyId)) };
+    return { propertyId, ...values, financialYear: fy, next, ...(await this.money(tenantId, propertyId)), gstStates: GST_STATES };
   }
 
   async save(tenantId: Types.ObjectId, propertyId: string, input: BillingSetupInput) {
@@ -83,8 +89,17 @@ export class BillingSetupService {
       series[doc] = { prefix: s.prefix, digits: s.digits, resetYearly: s.resetYearly };
     }
     const print = mergePrint(current.print, input.print, problems);
+    const taxes = await this.masters.list(tenantId, 'tax', true);
+    const propertyTaxIds = taxes.filter((t) => (t.values.propertyIds as string[] | undefined)?.includes(propertyId)).map((t) => t.id as string);
+    const gst = mergeGst(current.gst, input.gst, propertyTaxIds, problems);
     if (expandPrefix(series.bill.prefix, '2026-27') === expandPrefix(series.creditNote.prefix, '2026-27')) {
       problems.push('Bills and credit notes need different prefixes.');
+    }
+    if (gst.enabled) {
+      for (const doc of SERIES_DOCUMENTS) {
+        const sample = formatNumber(series[doc], '2026-27', 1);
+        if (sample.length > GST_NUMBER_MAX) problems.push(`${SERIES_LABELS[doc]}: a GST invoice number is at most ${GST_NUMBER_MAX} characters, and ${sample} is ${sample.length}. Shorten the prefix or use {FYSHORT}.`);
+      }
     }
     if (problems.length) throw new BadRequestException(problems);
 
@@ -101,13 +116,17 @@ export class BillingSetupService {
     }
     if (problems.length) throw new BadRequestException(problems);
 
-    await this.setups.findOneAndUpdate({ tenantId, propertyId }, { $set: { fyStartMonth, series, print } }, { upsert: true });
+    await this.setups.findOneAndUpdate({ tenantId, propertyId }, { $set: { fyStartMonth, series, print, gst } }, { upsert: true });
     for (const [doc, n] of starts) {
       await this.counters.findOneAndUpdate(
         { tenantId, name: counterName(doc, propertyId, series[doc], fy) }, { $max: { seq: n - 1 } }, { upsert: true },
       );
     }
     return this.view(tenantId, propertyId);
+  }
+
+  async gst(tenantId: Types.ObjectId, propertyId: string) {
+    return (await this.values(tenantId, propertyId)).gst;
   }
 
   /** How the property's documents are printed. */

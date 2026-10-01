@@ -9,7 +9,8 @@ export const DEFAULT_FY_START_MONTH = 4;
 
 export const DEFAULT_SERIES: Record<SeriesDocument, Series> = {
   bill: { prefix: 'B/{FY}/', digits: 6, resetYearly: true },
-  creditNote: { prefix: 'CN/{FY}/', digits: 6, resetYearly: true },
+  /** CN/26-27/000001: 15 characters, inside GST's 16. */
+  creditNote: { prefix: 'CN/{FYSHORT}/', digits: 6, resetYearly: true },
 };
 
 export const SERIES_LABELS: Record<SeriesDocument, string> = { bill: 'Bills', creditNote: 'Credit notes' };
