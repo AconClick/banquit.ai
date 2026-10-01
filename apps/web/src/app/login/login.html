@@ -1,0 +1,93 @@
+<main class="auth-page">
+  <section class="card auth-card">
+    <header class="auth-head">
+      <div class="brand">Banquet<span>.ai</span></div>
+      @if (tenants.tenant(); as t) {
+        <p class="muted">{{ t.name }}</p>
+      }
+    </header>
+
+    @if (session.notice(); as notice) {
+      <p class="alert">{{ notice }}</p>
+    }
+    @if (error(); as e) {
+      <p class="alert error" role="alert">{{ e }}</p>
+    }
+
+    @switch (step()) {
+      @case ('loading') {
+        <p class="muted">Loading…</p>
+      }
+      @case ('domain') {
+        <form (ngSubmit)="submitDomain()">
+          <label>Domain
+            <input name="domain" [(ngModel)]="domain" required autocomplete="organization" autofocus placeholder="e.g. prime" />
+          </label>
+          <button class="primary" [disabled]="busy() || !domain">Continue</button>
+        </form>
+      }
+      @case ('credentials') {
+        <form (ngSubmit)="submitCredentials()">
+          <label>User Id
+            <input name="userId" [(ngModel)]="userId" required autocomplete="username" autofocus />
+          </label>
+          <label>Password
+            <input name="password" type="password" [(ngModel)]="password" required autocomplete="current-password" />
+          </label>
+          <button class="primary" [disabled]="busy() || !userId || !password">Log in</button>
+        </form>
+        <p class="links">
+          <a routerLink="/forgot-password">Forgot password?</a>
+          @if (tenants.mode !== 'host') {
+            <button type="button" class="link" (click)="changeDomain()">Change domain</button>
+          }
+        </p>
+      }
+      @case ('change') {
+        <form (ngSubmit)="submitChange()">
+          <p>Please choose a new password. Use at least 8 characters with letters and digits.</p>
+          @if (!currentPassword) {
+            <label>Current password
+              <input name="current" type="password" [(ngModel)]="currentPassword" required autocomplete="current-password" />
+            </label>
+          }
+          <label>New password
+            <input name="new" type="password" [(ngModel)]="newPassword" required autocomplete="new-password" autofocus />
+          </label>
+          <label>Confirm new password
+            <input name="confirm" type="password" [(ngModel)]="confirmPassword" required autocomplete="new-password" />
+          </label>
+          <button class="primary" [disabled]="busy() || !newPassword || !confirmPassword">Save password</button>
+        </form>
+      }
+      @case ('activity') {
+        <form (ngSubmit)="submitActivity()">
+          <fieldset class="choices">
+            <legend>Open</legend>
+            @for (a of session.activities(); track a) {
+              <label class="choice">
+                <input type="radio" name="activity" [value]="a" [(ngModel)]="activity" />
+                <span><strong>{{ labels[a] }} Dashboard</strong>
+                  <small class="muted">{{ a === 'operations' ? 'Diary, reservations and billing' : 'Setup screens. Needs a code sent to your phone.' }}</small>
+                </span>
+              </label>
+            }
+          </fieldset>
+          <button class="primary" [disabled]="busy()">Continue</button>
+        </form>
+      }
+      @case ('otp') {
+        <form (ngSubmit)="submitOtp()">
+          <p>We sent a 6-digit code to your registered {{ otpSentTo() }}.</p>
+          <label>Code
+            <input name="otp" [(ngModel)]="otp" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" autofocus />
+          </label>
+          <button class="primary" [disabled]="busy() || otp.length !== 6">Verify</button>
+        </form>
+        <p class="links">
+          <button type="button" class="link" [disabled]="busy()" (click)="submitActivity()">Send a new code</button>
+        </p>
+      }
+    }
+  </section>
+</main>
