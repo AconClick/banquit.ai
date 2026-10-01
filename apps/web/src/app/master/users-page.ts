@@ -9,6 +9,7 @@ const KIND_LABELS: Record<User['kind'], string> = {
   entp: 'Master (entp)',
   implementation: 'Implementation',
   standard: '',
+  support: 'Banquet.ai Support',
 };
 
 /** User Management: name, user id, email, mobile, role. New users get an emailed password. */

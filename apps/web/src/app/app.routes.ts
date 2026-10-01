@@ -17,6 +17,8 @@ export const routes: Routes = [
   { path: 'login', component: Login, title: 'Log in · Banquet.ai' },
   { path: 'forgot-password', component: PasswordReset, title: 'Forgot password · Banquet.ai' },
   { path: 'reset-password', component: PasswordReset, title: 'Reset password · Banquet.ai' },
+  { path: 'support', loadComponent: () => import('./support/support-console').then((m) => m.SupportConsole), title: 'Support console · Banquet.ai' },
+  { path: 'support-enter', loadComponent: () => import('./support/support-enter').then((m) => m.SupportEnter), title: 'Support session · Banquet.ai' },
   {
     path: 'operations',
     component: Shell,
@@ -43,6 +45,7 @@ export const routes: Routes = [
       { path: 'data/:kind', component: MasterPage, title: 'Master setup · Banquet.ai' },
       { path: 'rates', component: RateMappingPage, title: 'Rate & Tax Mapping · Banquet.ai' },
       { path: 'property-settings', component: PropertySettingsPage, title: 'Property Settings · Banquet.ai' },
+      { path: 'support-access', loadComponent: () => import('./master/support-access-page').then((m) => m.SupportAccessPage), title: 'Support Access · Banquet.ai' },
     ],
   },
   { path: '', pathMatch: 'full', redirectTo: 'login' },
