@@ -1,0 +1,102 @@
+<div class="toolbar">
+  <h1>Reservation Diary</h1>
+  <label class="inline">Property
+    <select [ngModel]="propertyId()" (ngModelChange)="changeProperty($event)" name="property">
+      @for (p of properties(); track p.id) { <option [value]="p.id">{{ p['name'] }}</option> }
+    </select>
+  </label>
+  <label class="inline">Hall
+    <select [ngModel]="hallFilter()" (ngModelChange)="hallFilter.set($event)" name="hall">
+      <option value="">All halls</option>
+      @for (h of data()?.halls ?? []; track h.id) { <option [value]="h.id">{{ h.name }}</option> }
+    </select>
+  </label>
+  <div class="week">
+    <button (click)="move(-1)" aria-label="Previous week">◀</button>
+    <button (click)="move(0)">This week</button>
+    <button (click)="move(1)" aria-label="Next week">▶</button>
+    <input type="date" aria-label="Go to date" (change)="goTo($any($event.target).value)" />
+    <strong>{{ rangeLabel() }}</strong>
+  </div>
+  <span class="spacer"></span>
+  <button class="primary" (click)="newBooking()" [disabled]="!halls().length">New booking</button>
+</div>
+
+<div class="legend">
+  @for (l of legend; track l.status) {
+    <span class="key"><i [class]="'s-' + l.status"></i>{{ l.label }}</span>
+  }
+  <label class="check"><input type="checkbox" [ngModel]="showCancelled()" (ngModelChange)="showCancelled.set($event)" name="cancelled" /> Show cancelled</label>
+  <span class="muted hint">Drag down a hall's column to take a booking.</span>
+</div>
+
+@if (error(); as e) {
+  <p class="alert error" role="alert">{{ e }}</p>
+}
+
+@if (data() && !halls().length) {
+  <p class="alert">This property has no active halls yet. Add halls in the Master panel.</p>
+}
+
+@if (halls().length) {
+  <div class="scroller" #scroller>
+    <div class="grid-diary" [style.--hall-count]="halls().length">
+      <div class="corner head"></div>
+      @for (d of days(); track d) {
+        <div class="day head" [class.today]="d === today" [style.gridColumn]="'span ' + halls().length">{{ dayLabel(d) }}</div>
+      }
+      <div class="corner head2"></div>
+      @for (c of columns(); track colKey(c)) {
+        <div class="hall head2" [title]="c.hallName">{{ c.hallName }}</div>
+      }
+
+      <div class="times">
+        @for (h of hours; track h) {
+          <div class="time" [style.height.px]="hourPx">{{ (h < 10 ? '0' : '') + h }}:00</div>
+        }
+      </div>
+      @for (c of columns(); track colKey(c); let i = $index) {
+        <div
+          class="col"
+          [class.day-start]="i % halls().length === 0"
+          [class.today]="c.date === today"
+          [style.height.px]="hourPx * 24"
+          [style.--hour]="hourPx + 'px'"
+          (pointerdown)="startDrag($event, c)"
+          (pointermove)="moveDrag($event)"
+          (pointerup)="endDrag(c)"
+        >
+          @for (e of c.events; track e.key) {
+            <button
+              type="button"
+              class="event"
+              [class]="'event s-' + e.status"
+              [style.top.px]="e.top"
+              [style.height.px]="e.height"
+              [style.left.%]="(100 / e.lanes) * e.lane"
+              [style.width.%]="100 / e.lanes"
+              [title]="e.title + ' — ' + e.subtitle"
+              (click)="open(e)"
+            >
+              <strong>{{ e.title }}</strong>
+              <span>{{ e.subtitle }}</span>
+            </button>
+          }
+          @if (dragBox(c); as box) {
+            <div class="selecting" [style.top.px]="box.top" [style.height.px]="box.height">{{ box.label }}</div>
+          }
+        </div>
+      }
+    </div>
+  </div>
+}
+
+@if (panel(); as p) {
+  <app-booking-panel
+    [request]="p"
+    [propertyId]="propertyId()"
+    [halls]="data()?.halls ?? []"
+    [lookups]="lookups()"
+    (closed)="closed($event)"
+  />
+}

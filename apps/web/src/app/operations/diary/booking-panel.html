@@ -1,0 +1,180 @@
+<div class="backdrop" (click)="close()"></div>
+<aside class="panel" role="dialog" aria-modal="true" aria-labelledby="panel-title">
+  <header>
+    @switch (mode()) {
+      @case ('new') { <h2 id="panel-title">New booking</h2> }
+      @case ('edit') { <h2 id="panel-title">Change {{ reservation()?.number }}</h2> }
+      @case ('view') { <h2 id="panel-title">{{ reservation()?.number }} <span class="pill" [class]="'pill s-' + reservation()?.status">{{ labels[reservation()!.status] }}</span></h2> }
+      @case ('block-view') { <h2 id="panel-title">Hall block</h2> }
+    }
+    <button class="link" (click)="close()" aria-label="Close">✕</button>
+  </header>
+
+  @if (error(); as e) {
+    <p class="alert error" role="alert">{{ e }}</p>
+  }
+
+  @if (mode() === 'new' || mode() === 'edit') {
+    <form (ngSubmit)="save()">
+      @if (mode() === 'new') {
+        <div class="seg" role="radiogroup" aria-label="Type">
+          <label class="check"><input type="radio" name="kind" value="booking" [(ngModel)]="form.kind" /> Booking</label>
+          <label class="check"><input type="radio" name="kind" value="block" [(ngModel)]="form.kind" /> Block the hall</label>
+        </div>
+      }
+
+      <div class="row">
+        <label>Hall
+          <select name="hallId" [(ngModel)]="form.hallId" required>
+            @for (h of halls(); track h.id) { <option [value]="h.id">{{ h.name }} ({{ h.capacity }})</option> }
+          </select>
+        </label>
+        <label>Date <input type="date" name="date" [(ngModel)]="form.date" required /></label>
+      </div>
+      <div class="row">
+        <label>From <input type="time" name="from" [(ngModel)]="form.from" required /></label>
+        <label>To <input type="time" name="to" [(ngModel)]="form.to" required /></label>
+      </div>
+      @if (form.to && form.from && form.to <= form.from) {
+        <p class="muted small">Ends the next day.</p>
+      }
+
+      @if (form.kind === 'block') {
+        <label>Reason
+          <select name="blockReasonId" [(ngModel)]="form.blockReasonId" required>
+            <option value="" disabled>Choose</option>
+            @for (r of lookups()['hallBlockReason'] ?? []; track r.id) { <option [value]="r.id">{{ r['description'] }}</option> }
+          </select>
+        </label>
+        <label>Notes (optional) <input name="notes" [(ngModel)]="form.notes" maxlength="500" placeholder="e.g. Fumigation, housekeeping" /></label>
+      } @else {
+        @if (mode() === 'new') {
+          <label>Status
+            <select name="status" [(ngModel)]="form.status">
+              @for (s of createStatuses; track s) { <option [value]="s">{{ labels[s] }}</option> }
+            </select>
+          </label>
+        }
+        <label>Company / guest name <input name="hostName" [(ngModel)]="form.hostName" required maxlength="120" /></label>
+        <div class="row">
+          <label>Contact person (optional) <input name="contactName" [(ngModel)]="form.contactName" maxlength="120" /></label>
+          <label>Phone <input name="phone" [(ngModel)]="form.phone" required maxlength="30" /></label>
+        </div>
+        <label>Email (optional) <input type="email" name="email" [(ngModel)]="form.email" maxlength="120" /></label>
+        <div class="row">
+          <label>Function type
+            <select name="functionTypeId" [(ngModel)]="form.functionTypeId" required>
+              <option value="" disabled>Choose</option>
+              @for (r of lookups()['functionType'] ?? []; track r.id) { <option [value]="r.id">{{ r['description'] }}</option> }
+            </select>
+          </label>
+          <label>Seating style (optional)
+            <select name="seatingStyleId" [(ngModel)]="form.seatingStyleId">
+              <option value="">None</option>
+              @for (r of lookups()['seatingStyle'] ?? []; track r.id) { <option [value]="r.id">{{ r['description'] }}</option> }
+            </select>
+          </label>
+        </div>
+        <div class="row">
+          <label>Guaranteed pax <input type="number" min="1" step="1" name="g" [(ngModel)]="form.guaranteedPax" required /></label>
+          <label>Expected max pax <input type="number" min="1" step="1" name="e" [(ngModel)]="form.expectedMaxPax" required /></label>
+        </div>
+        <p class="muted small">The bill uses the higher of guaranteed and actual pax.</p>
+        @if (form.status === 'provisional') {
+          <label>Option date (optional) <input type="date" name="optionDate" [(ngModel)]="form.optionDate" /></label>
+          <p class="muted small">The date the guest must confirm by. Left empty, it is 7 days from today, and at least 3 days before the function.</p>
+        }
+        <label>Notes (optional) <textarea name="notes" [(ngModel)]="form.notes" rows="3" maxlength="1000"></textarea></label>
+        @if (needsAmendReason()) {
+          <label>Amendment reason
+            <select name="amendmentReasonId" [(ngModel)]="form.amendmentReasonId" required>
+              <option value="" disabled>Choose</option>
+              @for (r of lookups()['amendmentReason'] ?? []; track r.id) { <option [value]="r.id">{{ r['description'] }}</option> }
+            </select>
+          </label>
+        }
+      }
+      <div class="actions">
+        <button type="button" (click)="mode() === 'edit' ? mode.set('view') : close()">Cancel</button>
+        <button class="primary" [disabled]="busy()">{{ form.kind === 'block' ? 'Block hall' : 'Save booking' }}</button>
+      </div>
+    </form>
+  }
+
+  @if (mode() === 'view') {
+    @if (reservation(); as r) {
+      @for (w of r.warnings; track w) {
+        <p class="alert">{{ w }}</p>
+      }
+      <dl>
+        <dt>Company / guest</dt><dd>{{ r.hostName }}</dd>
+        @if (r.contactName) { <dt>Contact</dt><dd>{{ r.contactName }}</dd> }
+        <dt>Phone</dt><dd>{{ r.phone }}</dd>
+        @if (r.email) { <dt>Email</dt><dd>{{ r.email }}</dd> }
+        <dt>Function</dt><dd>{{ name('functionType', r.functionTypeId) }}@if (r.seatingStyleId) {, {{ name('seatingStyle', r.seatingStyleId) }}}</dd>
+        @for (s of r.slots; track s.start) {
+          <dt>Hall</dt><dd>{{ hallName(s.hallId) }}, {{ when(s.start, s.end) }}</dd>
+        }
+        <dt>Pax</dt><dd>{{ r.guaranteedPax }} guaranteed, {{ r.expectedMaxPax }} expected max</dd>
+        @if (r.optionDate && r.status === 'provisional') { <dt>Option date</dt><dd>{{ r.optionDate }}</dd> }
+        @if (r.notes) { <dt>Notes</dt><dd class="pre">{{ r.notes }}</dd> }
+      </dl>
+
+      @if (pending(); as p) {
+        <div class="card pending">
+          @if (p === 'cancelled') {
+            <label>Cancellation reason
+              <select name="pendingReason" [(ngModel)]="pendingReasonId">
+                <option value="" disabled>Choose</option>
+                @for (c of lookups()['cancellationReason'] ?? []; track c.id) { <option [value]="c.id">{{ c['description'] }}</option> }
+              </select>
+            </label>
+          } @else {
+            <label>Option date (optional) <input type="date" name="pendingOption" [(ngModel)]="pendingOptionDate" /></label>
+          }
+          <div class="actions">
+            <button type="button" (click)="pending.set(null)">Back</button>
+            <button class="primary" [disabled]="busy() || (p === 'cancelled' && !pendingReasonId)" (click)="apply(p)">
+              {{ p === 'cancelled' ? 'Cancel booking' : 'Make provisional' }}
+            </button>
+          </div>
+        </div>
+      } @else {
+        <div class="status-actions">
+          @if (editable()) { <button (click)="startEdit()">Change details</button> }
+          @for (s of nextStatuses(); track s) {
+            <button [class.danger]="s === 'cancelled' || s === 'lost'" [disabled]="busy()" (click)="choose(s)">
+              {{ s === 'cancelled' ? 'Cancel booking' : s === 'lost' ? 'Mark lost' : 'Make ' + labels[s].toLowerCase() }}
+            </button>
+          }
+        </div>
+      }
+
+      <h3>History</h3>
+      <ol class="history">
+        @for (h of r.history; track $index) {
+          <li>
+            <span class="muted">{{ h.at.slice(0, 16).replace('T', ' ') }}</span>
+            @if (h.from === null) { Created as {{ labels[h.to] }} }
+            @else if (h.from === h.to) { {{ h.note ?? 'Changed' }}@if (h.reasonId) { ({{ name('amendmentReason', h.reasonId) }}) } }
+            @else { {{ labels[h.from] }} → {{ labels[h.to] }}@if (h.to === 'cancelled' && h.reasonId) { ({{ name('cancellationReason', h.reasonId) }}) } }
+          </li>
+        }
+      </ol>
+    }
+  }
+
+  @if (mode() === 'block-view') {
+    @if (block(); as b) {
+      <dl>
+        <dt>Hall</dt><dd>{{ hallName(b.hallId) }}</dd>
+        <dt>When</dt><dd>{{ when(b.start, b.end) }}</dd>
+        <dt>Reason</dt><dd>{{ name('hallBlockReason', b.reasonId) }}</dd>
+        @if (b.notes) { <dt>Notes</dt><dd>{{ b.notes }}</dd> }
+      </dl>
+      <div class="actions">
+        <button class="danger" [disabled]="busy()" (click)="removeBlock()">Remove block</button>
+      </div>
+    }
+  }
+</aside>
