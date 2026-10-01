@@ -1,0 +1,9 @@
+{
+  "name": "banquetai",
+  "private": true,
+  "scripts": {
+    "install:all": "npm --prefix apps/api install && npm --prefix apps/web install",
+    "test": "npm --prefix apps/api test && npm --prefix apps/web test",
+    "build": "npm --prefix apps/api run build && npm --prefix apps/web run build"
+  }
+}
