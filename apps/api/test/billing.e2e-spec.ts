@@ -335,6 +335,57 @@ describe('Banquet billing: draft, final bill and settlement', () => {
     expect(stamps[6]).toBeGreaterThan(stamps[5]);
   });
 
+  it('issues credit notes against a final bill, and refunds what they free up', async () => {
+    const fy = financialYear(today());
+    const bill = (await ops.get(`billing/bills/${ids.bill1}`).expect(200)).body;
+    const mocktail = bill.lines.find((l: { label: string }) => l.label === 'Mocktail');
+    const open = (await ops.get(`billing/bills/${ids.bill1}/credit-notes`).expect(200)).body;
+    expect(open.lines.find((l: { lineId: string }) => l.lineId === mocktail.id)).toMatchObject({ total: 3540, credited: 0, open: 3540 });
+
+    await ops.post(`billing/bills/${ids.bill1}/credit-notes`, { reason: ' ', lines: [{ lineId: mocktail.id, amount: 5000 }] }).expect(400)
+      .then((r) => expect(r.body.message).toEqual(['Give the reason for the credit note.', 'Mocktail: only 3540.00 is left to credit.']));
+    // Ten mocktails were not served: credit 1,180 (1,000 plus 18% GST) on a settled bill.
+    const res = (await ops.post(`billing/bills/${ids.bill1}/credit-notes`, {
+      reason: '10 mocktails not served', lines: [{ lineId: mocktail.id, amount: 1180 }],
+    }).expect(201)).body;
+    expect(res.creditNote).toMatchObject({
+      number: `CN/${fy}/000001`, billNumber: bill.number, billDate: bill.date, status: 'issued', currency: 'INR',
+      taxable: 1000, taxes: [{ id: ids.gst18, amount: 180 }], total: 1180, roundOff: 0,
+    });
+    expect(res.bill).toMatchObject({ status: 'partiallySettled', credited: 1180, balance: -1180, creditNotes: [{ number: `CN/${fy}/000001`, total: 1180 }] });
+    const refund = (await ops.post(`billing/bills/${ids.bill1}/payments`, { kind: 'refund', amount: 1180, mode: 'upi' }).expect(200)).body;
+    expect(refund).toMatchObject({ status: 'settled', balance: 0 });
+    const after = (await ops.get(`billing/bills/${ids.bill1}/credit-notes`).expect(200)).body;
+    expect(after.lines.find((l: { lineId: string }) => l.lineId === mocktail.id)).toMatchObject({ credited: 1180, open: 2360 });
+
+    // Issued in error: cancelling it puts the 1,180 back on the bill.
+    const cancelled = (await ops.post(`billing/credit-notes/${res.creditNote.id}/cancel`, { reason: 'Mocktails were served after all' }).expect(200)).body;
+    expect(cancelled.creditNote.status).toBe('cancelled');
+    expect(cancelled.bill).toMatchObject({ status: 'partiallySettled', credited: 0, balance: 1180 });
+    await ops.post(`billing/credit-notes/${res.creditNote.id}/cancel`, { reason: 'again' }).expect(400);
+
+    // A full credit note brings the whole bill to zero, round-off included; the guest is owed what was paid.
+    const full = (await ops.post(`billing/bills/${ids.bill1}/credit-notes`, { reason: 'Function billed to the wrong guest', full: true }).expect(201)).body;
+    expect(full.creditNote).toMatchObject({ number: `CN/${fy}/000002`, total: 145628, roundOff: 0.5 });
+    expect(full.bill).toMatchObject({ credited: 145628, balance: -(145628 - 1180) });
+    await ops.post(`billing/bills/${ids.bill1}/credit-notes`, { reason: 'More', full: true }).expect(400)
+      .then((r) => expect(r.body.message).toEqual(['Everything on this bill has been credited already.']));
+    const list = (await ops.get(`billing/credit-notes?propertyId=${ids.p1}`).expect(200)).body;
+    expect(list.map((n: { number: string; status: string }) => [n.number, n.status])).toEqual([[`CN/${fy}/000002`, 'issued'], [`CN/${fy}/000001`, 'cancelled']]);
+    expect((await ops.get(`billing/credit-notes/${full.creditNote.id}`).expect(200)).body.lines).toHaveLength(5);
+  });
+
+  it('will not void a bill with credit notes, nor credit a draft', async () => {
+    const r5 = await confirmedBooking({ from: '05:00', to: '06:00', pax: 2, advance: 1000 });
+    await complete(r5, 2);
+    const draft = (await ops.post(`billing/reservations/${r5}/draft`, {}).expect(201)).body;
+    await ops.post(`billing/bills/${draft.id}/credit-notes`, { reason: 'x', full: true }).expect(400);
+    await ops.post(`billing/bills/${draft.id}/finalise`, {}).expect(200);
+    await ops.post(`billing/bills/${draft.id}/credit-notes`, { reason: 'Discount agreed later', lines: [{ lineId: draft.lines[0].id, amount: 100 }] }).expect(201);
+    const v = await ops.post(`billing/bills/${draft.id}/void`, { reason: 'Wrong' }).expect(400);
+    expect(v.body.message).toMatch(/Credit notes have been issued/);
+  });
+
   it('works out the financial year from the date', () => {
     expect(financialYear('2026-10-01')).toBe('2026-27');
     expect(financialYear('2027-03-31')).toBe('2026-27');

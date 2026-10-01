@@ -30,6 +30,7 @@ export const routes: Routes = [
       // Billing loads on first use, keeping the first page small.
       { path: 'billing', loadComponent: () => import('./operations/billing/bills-page').then((m) => m.BillsPage), title: 'Bills · Banquet.ai' },
       { path: 'billing/:id', loadComponent: () => import('./operations/billing/bill-page').then((m) => m.BillPage), title: 'Bill · Banquet.ai' },
+      { path: 'billing/:id/credit-notes/:cnId', loadComponent: () => import('./operations/billing/credit-note-print').then((m) => m.CreditNotePrint), title: 'Credit note · Banquet.ai' },
       { path: 'billing/:id/print', loadComponent: () => import('./operations/billing/bill-print').then((m) => m.BillPrint), title: 'Print bill · Banquet.ai' },
     ],
   },

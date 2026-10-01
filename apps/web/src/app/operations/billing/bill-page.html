@@ -211,6 +211,7 @@
           <dt class="grand">Total {{ currency() }}</dt><dd class="grand">{{ money(b.total) }}</dd>
           <dt>Advances</dt><dd>−{{ money(b.advances) }}</dd>
           @if (b.paid) { <dt>Paid on bill</dt><dd>−{{ money(b.paid) }}</dd> }
+          @if (b.credited) { <dt>Credit notes</dt><dd>−{{ money(b.credited) }}</dd> }
           <dt class="grand">{{ b.balance < 0 ? 'Due to guest' : 'Balance' }}</dt><dd class="grand">{{ money(b.balance < 0 ? -b.balance : b.balance) }}</dd>
         </dl>
       </div>
@@ -266,8 +267,81 @@
             </div>
           </form>
         }
-        @if (b.status === 'finalised' || (b.status === 'partiallySettled' && !b.payments.length)) {
+        @if ((b.status === 'finalised' || (b.status === 'partiallySettled' && !b.payments.length)) && !b.credited) {
           <p class="right"><button class="link danger" (click)="confirmingVoid = true">Void this bill</button></p>
+        }
+      </section>
+    }
+
+    @if (b.number && b.status !== 'void') {
+      <section class="card">
+        <div class="section-head">
+          <h2>Credit notes</h2>
+          @if (!crediting()) { <button (click)="startCredit()" [disabled]="busy()">Issue a credit note</button> }
+        </div>
+        @if (b.creditNotes.length) {
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Number</th><th>Date</th><th>Status</th><th class="num">Amount</th><th></th></tr></thead>
+              <tbody>
+                @for (c of b.creditNotes; track c.id) {
+                  <tr [class.muted]="c.status === 'cancelled'">
+                    <td><a [routerLink]="['/operations/billing', v.booking.id, 'credit-notes', c.id]">{{ c.number }}</a></td>
+                    <td>{{ c.date }}</td>
+                    <td><span class="pill">{{ c.status === 'issued' ? 'Issued' : 'Cancelled' }}</span></td>
+                    <td class="num">{{ money(c.total) }}</td>
+                    <td class="right">
+                      @if (c.status === 'issued') {
+                        @if (cancellingCredit === c.id) {
+                          <span class="inline-form">
+                            <input [(ngModel)]="cancelCreditReason" placeholder="Why cancel it?" maxlength="300" aria-label="Reason for cancelling" />
+                            <button (click)="cancellingCredit = null">Keep</button>
+                            <button class="danger-btn primary" (click)="cancelCredit(c.id)" [disabled]="busy() || !cancelCreditReason.trim()">Cancel it</button>
+                          </span>
+                        } @else {
+                          <button class="link danger" (click)="cancellingCredit = c.id; cancelCreditReason = ''">Cancel</button>
+                        }
+                      }
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        } @else if (!crediting()) {
+          <p class="muted small">None. A credit note gives back part or all of this bill: a service not given, a lower price agreed afterwards, or a billing mistake.</p>
+        }
+
+        @if (crediting(); as lines) {
+          <form class="credit" (ngSubmit)="issueCredit()">
+            <label>Reason <input name="creditReason" [(ngModel)]="credit.reason" maxlength="300" required placeholder="e.g. 10 mocktails not served" /></label>
+            <label class="check"><input type="checkbox" name="creditFull" [(ngModel)]="credit.full" /> Credit everything still open on the bill</label>
+            @if (!credit.full) {
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>Line</th><th class="num">Charged</th><th class="num">Credited</th><th class="num">Open</th><th class="num">Credit (incl. tax)</th></tr></thead>
+                  <tbody>
+                    @for (l of lines; track l.lineId) {
+                      <tr>
+                        <td>{{ l.label }}</td><td class="num">{{ money(l.total) }}</td><td class="num">{{ l.credited ? money(l.credited) : '' }}</td>
+                        <td class="num">{{ money(l.open) }}</td>
+                        <td class="num">
+                          @if (l.open > 0) {
+                            <input type="number" min="0" [max]="l.open" step="any" class="w-num" [name]="'cr-' + l.lineId" [(ngModel)]="credit.amounts[l.lineId]" [attr.aria-label]="'Credit on ' + l.label" />
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <p class="muted small">Taxes are reversed in the same proportion as they were charged. Credit: <strong>{{ money(creditTotal()) }}</strong></p>
+            }
+            <div class="actions">
+              <button type="button" (click)="crediting.set(null)">Close</button>
+              <button class="primary" type="submit" [disabled]="busy() || !credit.reason.trim() || (!credit.full && !creditTotal())">Issue credit note</button>
+            </div>
+          </form>
         }
       </section>
     }

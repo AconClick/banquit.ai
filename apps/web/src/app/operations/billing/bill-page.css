@@ -50,3 +50,10 @@ button.danger-btn { background: var(--danger); border-color: var(--danger); }
   .bill-discount { flex: 0 0 auto; }
   .totals { min-width: 0; }
 }
+
+.section-head { display: flex; justify-content: space-between; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+.section-head h2 { margin: 0; }
+.inline-form { display: inline-flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+.inline-form input { width: 14rem; max-width: 100%; }
+form.credit { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
+tr.muted td { color: var(--muted); }

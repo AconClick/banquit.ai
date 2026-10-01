@@ -131,6 +131,25 @@ export class BillEvent {
   note?: string;
 }
 
+/** A credit note issued against this final bill (its own record is in creditNotes). */
+@Schema({ _id: false })
+export class BillCredit {
+  @Prop({ required: true })
+  id: string;
+
+  @Prop()
+  number?: string;
+
+  @Prop({ required: true })
+  date: string;
+
+  @Prop({ required: true })
+  total: number;
+
+  @Prop({ type: String, required: true })
+  status: 'issued' | 'cancelled';
+}
+
 @Schema({ timestamps: true })
 export class Bill {
   @Prop({ type: Types.ObjectId, required: true })
@@ -165,6 +184,10 @@ export class Bill {
   @Prop()
   decimals?: number;
 
+  /** Date of the final bill at the property (YYYY-MM-DD). */
+  @Prop()
+  date?: string;
+
   /** From the bill series when finalised, e.g. B/2026-27/000001. */
   @Prop()
   number?: string;
@@ -187,6 +210,9 @@ export class Bill {
 
   @Prop({ type: [BillPayment], default: [] })
   payments: BillPayment[];
+
+  @Prop({ type: [BillCredit], default: [] })
+  credits: BillCredit[];
 
   /** Totals as printed, stored when finalised. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null })

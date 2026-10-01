@@ -7,6 +7,7 @@ import type { TenantDocument } from '../tenants/tenant.schema.js';
 import type { LineSource } from './bill-engine.js';
 import { BILL_STATUSES, PAYMENT_MODES, type PaymentMode } from './bill.schema.js';
 import { BillingSetupService } from './billing-setup.service.js';
+import { CreditNotesService } from './credit-notes.service.js';
 import { BillingService } from './billing.service.js';
 
 const SOURCES: LineSource[] = ['package', 'extra', 'running', 'hallHire', 'liquorLicence'];
@@ -51,6 +52,17 @@ class VoidDto {
   @IsString() @MaxLength(300) reason: string;
 }
 
+class CreditLineDto {
+  @IsString() lineId: string;
+  @IsNumber() amount: number;
+}
+
+class CreditNoteDto {
+  @IsString() @MaxLength(300) reason: string;
+  @IsOptional() @IsBoolean() full?: boolean;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CreditLineDto) lines?: CreditLineDto[];
+}
+
 class SeriesDto {
   @IsString() @MaxLength(40) prefix: string;
   @IsInt() digits: number;
@@ -79,7 +91,39 @@ export class BillingController {
   constructor(
     private readonly billing: BillingService,
     private readonly setup: BillingSetupService,
+    private readonly credits: CreditNotesService,
   ) {}
+
+  @Get('bills/:id/credit-notes')
+  @RequirePermission('billing.manage')
+  billCredits(@CurrentTenant() tenant: TenantDocument, @Param('id') id: string) {
+    return this.credits.forBill(tenant._id, id);
+  }
+
+  @Post('bills/:id/credit-notes')
+  @RequirePermission('billing.approve')
+  issueCredit(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() body: CreditNoteDto) {
+    return this.credits.issue(tenant._id, auth.user.id as string, id, body);
+  }
+
+  @Get('credit-notes')
+  @RequirePermission('billing.manage')
+  listCredits(@CurrentTenant() tenant: TenantDocument, @Query('propertyId') propertyId?: string, @Query('from') from?: string, @Query('to') to?: string) {
+    return this.credits.list(tenant._id, { propertyId, from, to });
+  }
+
+  @Get('credit-notes/:id')
+  @RequirePermission('billing.manage')
+  getCredit(@CurrentTenant() tenant: TenantDocument, @Param('id') id: string) {
+    return this.credits.get(tenant._id, id);
+  }
+
+  @Post('credit-notes/:id/cancel')
+  @HttpCode(200)
+  @RequirePermission('billing.approve')
+  cancelCredit(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() body: VoidDto) {
+    return this.credits.cancel(tenant._id, auth.user.id as string, id, body.reason);
+  }
 
   @Get('setup/:propertyId')
   @RequirePermission('billing.setup')
