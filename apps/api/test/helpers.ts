@@ -10,6 +10,14 @@ import { ConsoleNotifier, Notifier } from '../src/notifications/notifier.js';
 
 export const ADMIN = { 'x-platform-token': 'dev-platform-token' };
 
+/** The session token a login-type response set as the session cookie (the body no longer carries it). */
+export function tokenOf(res: { headers: Record<string, unknown> }): string {
+  const cookies = ([] as string[]).concat((res.headers['set-cookie'] as string | string[] | undefined) ?? []);
+  const found = cookies.map((c) => /^(?:__Host-)?bq_session=([^;]+)/.exec(c)).find(Boolean);
+  if (!found) throw new Error('The response did not set a session cookie.');
+  return decodeURIComponent(found[1]);
+}
+
 /** Starts the app on a clean database and offers helpers to sign up tenants and log in. */
 export async function startApp() {
   authRules.otpResendSeconds = 0;
@@ -35,14 +43,14 @@ export async function startApp() {
     await http().post(`/api/platform/tenants/${subdomain}/approve`).set(ADMIN).send({ approvedBy: 'test' }).expect(200);
     const password = passwordIn(lastMessage(`owner@${subdomain}.test`).body);
     const login = await http().post('/api/auth/login').set('Host', host).send({ userId: 'entp', password }).expect(200);
-    const changed = await http().post('/api/auth/change-password').set('Host', host).auth(login.body.token, { type: 'bearer' })
+    const changed = await http().post('/api/auth/change-password').set('Host', host).auth(tokenOf(login), { type: 'bearer' })
       .send({ currentPassword: password, newPassword: 'Start2026x' }).expect(200);
-    const act = await http().post('/api/auth/activity').set('Host', host).auth(changed.body.token, { type: 'bearer' })
+    const act = await http().post('/api/auth/activity').set('Host', host).auth(tokenOf(changed), { type: 'bearer' })
       .send({ activity }).expect(200);
-    if (activity === 'operations') return { host, token: act.body.token as string };
-    const verified = await http().post('/api/auth/otp/verify').set('Host', host).auth(changed.body.token, { type: 'bearer' })
+    if (activity === 'operations') return { host, token: tokenOf(act) as string };
+    const verified = await http().post('/api/auth/otp/verify').set('Host', host).auth(tokenOf(changed), { type: 'bearer' })
       .send({ code: otpIn(lastMessage(mobile).body) }).expect(200);
-    return { host, token: verified.body.token as string };
+    return { host, token: tokenOf(verified) as string };
   }
 
   async function close() {

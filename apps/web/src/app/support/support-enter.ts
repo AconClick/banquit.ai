@@ -30,12 +30,14 @@ export class SupportEnter implements OnInit {
     history.replaceState(null, '', window.location.pathname);
     if (!token) return this.error.set('This link has no support session. Enter again from the support console.');
     try {
+      // Swap the one-time link token for this address's httpOnly session cookie.
       const headers = new HttpHeaders({ Authorization: `Bearer ${token}` });
+      await firstValueFrom(this.http.post('/api/auth/session-cookie', {}, { headers }));
       const [me, support] = await Promise.all([
-        firstValueFrom(this.http.get<{ user: User; activity: Activity; activities: Activity[] }>('/api/auth/me', { headers })),
-        firstValueFrom(this.http.get<SupportSessionInfo>('/api/support-session', { headers })),
+        firstValueFrom(this.http.get<{ user: User; activity: Activity; activities: Activity[] }>('/api/auth/me')),
+        firstValueFrom(this.http.get<SupportSessionInfo>('/api/support-session')),
       ]);
-      this.session.apply({ token, user: me.user, activity: me.activity, activities: me.activities, mustChangePassword: false, support });
+      this.session.apply({ user: me.user, activity: me.activity, activities: me.activities, mustChangePassword: false, support });
       await this.router.navigate([`/${me.activity}`], { replaceUrl: true });
     } catch (err) {
       this.error.set(errorMessage(err));
