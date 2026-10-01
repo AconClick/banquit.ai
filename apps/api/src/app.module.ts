@@ -28,7 +28,7 @@ import { ReportsController } from './reports/reports.controller.js';
 import { ReportsService } from './reports/reports.service.js';
 import { RolesController } from './roles/roles.controller.js';
 import { RolesService } from './roles/roles.service.js';
-import { SupportAccessController, SupportConsoleController, SupportConsoleGuard, SupportSessionController, SupportStaffController } from './support/support.controller.js';
+import { SupportAccessController, SupportApprovalController, SupportConsoleController, SupportConsoleGuard, SupportSessionController, SupportStaffController } from './support/support.controller.js';
 import { SupportSession, SupportSessionSchema, SupportUser, SupportUserSchema } from './support/support.schema.js';
 import { SupportService } from './support/support.service.js';
 import { Tenant, TenantSchema } from './tenants/tenant.schema.js';
@@ -58,7 +58,7 @@ import { UsersService } from './users/users.service.js';
     NotificationsModule,
   ],
   controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController,
-    SupportConsoleController, SupportSessionController, SupportAccessController, SupportStaffController],
+    SupportConsoleController, SupportSessionController, SupportAccessController, SupportApprovalController, SupportStaffController],
   providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, AuthGuard,
     BillingService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
 })

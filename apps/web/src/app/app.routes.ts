@@ -17,6 +17,7 @@ export const routes: Routes = [
   { path: 'forgot-password', component: PasswordReset, title: 'Forgot password · Banquet.ai' },
   { path: 'reset-password', component: PasswordReset, title: 'Reset password · Banquet.ai' },
   { path: 'support', loadComponent: () => import('./support/support-console').then((m) => m.SupportConsole), title: 'Support console · Banquet.ai' },
+  { path: 'support-approval', loadComponent: () => import('./support/support-approval').then((m) => m.SupportApproval), title: 'Support request · Banquet.ai' },
   { path: 'support-enter', loadComponent: () => import('./support/support-enter').then((m) => m.SupportEnter), title: 'Support session · Banquet.ai' },
   {
     path: 'operations',

@@ -6,7 +6,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { randomUUID } from 'node:crypto';
 import { authRules, config } from '../config.js';
-import { checkPassword, generateOtp, generatePassword, hashPassword, passwordProblem, sha256 } from '../common/passwords.js';
+import { checkPassword, generateOtp, generatePassword, hashPassword, passwordProblem, randomToken, sha256 } from '../common/passwords.js';
 import { Notifier } from '../notifications/notifier.js';
 import { ACTIVITIES, ALL_PERMISSIONS, type Activity } from '../roles/permissions.js';
 import { Tenant, TenantDocument } from '../tenants/tenant.schema.js';
@@ -28,6 +28,11 @@ export interface SupportSessionTokenPayload {
 }
 
 const INVALID_LOGIN = 'Invalid email or password.';
+const INVALID_APPROVAL_LINK = 'This link is invalid, has expired or was already used. Open Master › Support Access instead.';
+
+/** The address the client's app lives at: the first verified custom domain, else the sub-domain. */
+const hostOf = (t: Pick<TenantDocument, 'customDomains' | 'subdomain'>) =>
+  t.customDomains.find((d) => d.verified)?.domain ?? `${t.subdomain}.${config.baseDomain}`;
 
 export const supportUserView = (u: SupportUserDocument) => ({
   id: u.id as string, email: u.email, name: u.name, mobile: u.mobile, role: u.role, active: u.active, mustChangePassword: u.mustChangePassword,
@@ -207,13 +212,15 @@ export class SupportService {
     if (input.emergency && user.role !== 'manager') throw new ForbiddenException('Only a support manager can use the emergency override.');
     const ask = tenant.supportAccess === 'ask' && !input.emergency;
     const now = new Date();
+    const link = ask ? randomToken() : null;
     const s = await this.sessions.create({
       tenantId: tenant._id, supportUserId: user._id, supportName: user.name, reason: reason.slice(0, 500),
       ticket: (input.ticket ?? '').trim().slice(0, 50), emergency: !!input.emergency && tenant.supportAccess === 'ask',
       status: ask ? 'pending' : 'active', requestedAt: now,
       ...(ask ? {} : { startedAt: now, endsAt: this.endsAt(now) }),
+      ...(link ? { approvalTokenHash: sha256(link), approvalExpiresAt: new Date(now.getTime() + authRules.supportApprovalLinkHours * 3_600_000) } : {}),
     });
-    await this.tellClient(tenant, s, ask ? 'request' : s.emergency ? 'emergency' : 'start');
+    await this.tellClient(tenant, s, ask ? 'request' : s.emergency ? 'emergency' : 'start', link);
     return supportSessionView(s, tenant);
   }
 
@@ -233,8 +240,7 @@ export class SupportService {
     if (s.status !== 'active' || isExpired(s)) throw new BadRequestException('This support session has ended. Start a new one with a reason.');
     const tenant = await this.tenants.findById(s.tenantId);
     if (!tenant || tenant.status !== 'active') throw new NotFoundException('This client is not active.');
-    const loginHost = tenant.customDomains.find((d) => d.verified)?.domain ?? `${tenant.subdomain}.${config.baseDomain}`;
-    return { ...(await this.sessionToken(s, activity)), subdomain: tenant.subdomain, loginHost };
+    return { ...(await this.sessionToken(s, activity)), subdomain: tenant.subdomain, loginHost: hostOf(tenant) };
   }
 
   async endFromConsole(user: SupportUserDocument, id: string) {
@@ -297,18 +303,47 @@ export class SupportService {
   }
 
   async decide(tenant: TenantDocument, id: string, approve: boolean, by: string) {
-    const s = await this.findSession(id, tenant._id);
-    if (!s) throw new NotFoundException('Support request not found.');
-    if (s.status !== 'pending') throw new ConflictException('This request has already been answered.');
+    if (!Types.ObjectId.isValid(id)) throw new NotFoundException('Support request not found.');
+    const answered = await this.answer(tenant, { _id: new Types.ObjectId(id), tenantId: tenant._id }, approve, by);
+    if (answered) return answered;
+    if (await this.sessions.exists({ _id: id, tenantId: tenant._id })) throw new ConflictException('This request has already been answered.');
+    throw new NotFoundException('Support request not found.');
+  }
+
+  // ---- Client side (link in the request email; no login) ----
+
+  /** What the emailed link is about, so the client sees it before answering. Opening it changes nothing. */
+  async emailRequest(token: string, hostTenant: TenantDocument | null | undefined) {
+    const s = await this.sessions.findOne(this.linkFilter(token));
+    const tenant = s && (await this.tenants.findById(s.tenantId));
+    if (!s || !tenant || (hostTenant && String(hostTenant._id) !== String(tenant._id))) throw new BadRequestException(INVALID_APPROVAL_LINK);
+    return { ...supportSessionView(s, tenant), approvalExpiresAt: s.approvalExpiresAt };
+  }
+
+  /** Approve or decline from the emailed link. It works once and only until it expires. */
+  async decideByEmail(token: string, approve: boolean, hostTenant: TenantDocument | null | undefined) {
+    const found = await this.sessions.findOne(this.linkFilter(token));
+    const tenant = found && (await this.tenants.findById(found.tenantId));
+    if (!found || !tenant || (hostTenant && String(hostTenant._id) !== String(tenant._id))) throw new BadRequestException(INVALID_APPROVAL_LINK);
+    const answered = await this.answer(tenant, { _id: found._id, ...this.linkFilter(token) }, approve, `${tenant.contactName} (by email link)`);
+    if (!answered) throw new BadRequestException(INVALID_APPROVAL_LINK);
+    return answered;
+  }
+
+  private linkFilter(token: string) {
+    return { approvalTokenHash: sha256(String(token ?? '')), approvalExpiresAt: { $gt: new Date() } };
+  }
+
+  /**
+   * Answers a pending request in one atomic update, so two answers at once (app and email,
+   * or two admins) cannot both win. Any answer also uses up the emailed link.
+   */
+  private async answer(tenant: TenantDocument, filter: Record<string, unknown>, approve: boolean, by: string) {
     const now = new Date();
-    s.status = approve ? 'active' : 'denied';
-    s.decidedBy = by;
-    s.decidedAt = now;
-    if (approve) {
-      s.startedAt = now;
-      s.endsAt = this.endsAt(now);
-    }
-    await s.save();
+    const set = { status: approve ? 'active' : 'denied', decidedBy: by, decidedAt: now, ...(approve ? { startedAt: now, endsAt: this.endsAt(now) } : {}) };
+    const done = await this.sessions.updateOne({ ...filter, status: 'pending' }, { $set: set, $unset: { approvalTokenHash: 1 } });
+    if (!done.modifiedCount) return null;
+    const s = (await this.sessions.findById(filter._id))!;
     const staff = await this.staff.findById(s.supportUserId);
     if (staff) {
       await this.notifier.send({
@@ -339,11 +374,11 @@ export class SupportService {
   }
 
   /** The client's contact is emailed whenever support asks to enter or enters. */
-  private async tellClient(tenant: TenantDocument, s: SupportSessionDocument, kind: 'request' | 'start' | 'emergency') {
+  private async tellClient(tenant: TenantDocument, s: SupportSessionDocument, kind: 'request' | 'start' | 'emergency', link: string | null = null) {
     const who = `${s.supportName} from Banquet.ai support`;
     const why = `Reason: ${s.reason}${s.ticket ? ` (ticket ${s.ticket})` : ''}.`;
     const body = {
-      request: `${who} asks to enter your Banquet.ai account. ${why} Approve or decline it in Master › Support Access.`,
+      request: `${who} asks to enter your Banquet.ai account. ${why} To approve or decline, open https://${hostOf(tenant)}/support-approval?token=${link} (works once, for ${authRules.supportApprovalLinkHours} hours), or use Master › Support Access.`,
       start: `${who} has entered your Banquet.ai account for up to ${authRules.supportSessionHours} hours. ${why} You can see what they do in Master › Support Access.`,
       emergency: `${who} entered your Banquet.ai account using the emergency override because approval could not be obtained. ${why} Every action is listed in Master › Support Access.`,
     }[kind];

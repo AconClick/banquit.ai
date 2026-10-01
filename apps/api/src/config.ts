@@ -28,4 +28,6 @@ export const authRules = {
   resetLinkMinutes: 30,
   /** A support session ends after this many hours; a new reason is needed to enter again. */
   supportSessionHours: 4,
+  /** How long the approve/decline link in a support request email works. */
+  supportApprovalLinkHours: 24,
 };

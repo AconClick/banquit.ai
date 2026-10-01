@@ -1,11 +1,11 @@
 import {
-  Body, CanActivate, Controller, createParamDecorator, ExecutionContext, ForbiddenException, Get, HttpCode, Injectable, Param, Post, Put, Query, UnauthorizedException, UseGuards,
+  Body, CanActivate, Controller, Req, createParamDecorator, ExecutionContext, ForbiddenException, Get, HttpCode, Injectable, Param, Post, Put, Query, UnauthorizedException, UseGuards,
 } from '@nestjs/common';
 import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { Request } from 'express';
 import { AuthGuard, NotForSupport, RequirePermission, SupportReadOk } from '../auth/auth.guard.js';
 import { ActivityDto, ChangePasswordDto, OtpDto } from '../auth/dto.js';
-import { CurrentAuth, CurrentTenant, type AuthContext } from '../common/request-context.js';
+import { CurrentAuth, CurrentTenant, type AppRequest, type AuthContext } from '../common/request-context.js';
 import { PlatformAdminGuard } from '../platform/platform-admin.guard.js';
 import type { TenantDocument } from '../tenants/tenant.schema.js';
 import type { SupportUserDocument } from './support.schema.js';
@@ -206,6 +206,28 @@ export class SupportAccessController {
 
   private name(auth: AuthContext) {
     return `${auth.user.firstName} ${auth.user.lastName ?? ''}`.trim();
+  }
+}
+
+class EmailDecisionDto {
+  @IsString() @IsNotEmpty() @MaxLength(100) token: string;
+  @IsBoolean() approve: boolean;
+}
+
+/** The approve/decline link in a support request email. The token is the permission; no login. */
+@Controller('support-approval')
+export class SupportApprovalController {
+  constructor(private readonly support: SupportService) {}
+
+  @Get()
+  view(@Req() req: AppRequest, @Query('token') token: string) {
+    return this.support.emailRequest(token, req.tenant);
+  }
+
+  @Post()
+  @HttpCode(200)
+  decide(@Req() req: AppRequest, @Body() body: EmailDecisionDto) {
+    return this.support.decideByEmail(body.token, body.approve, req.tenant);
   }
 }
 
