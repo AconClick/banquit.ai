@@ -1,0 +1,298 @@
+@if (view(); as v) {
+  <div class="page-head">
+    <div>
+      <a class="back" [routerLink]="['/operations/bookings', v.booking.id]">‹ Booking {{ v.booking.number }}</a>
+      <h1>
+        @if (bill(); as b) {
+          {{ b.number ? 'Bill ' + b.number : 'Draft bill' }} <span class="pill status-{{ b.status }}">{{ statusLabels[b.status] }}</span>
+        } @else {
+          Proforma <span class="pill">Estimate</span>
+        }
+      </h1>
+      <p class="muted sub">
+        {{ v.booking.hostName }} · {{ v.booking.functionDate }} · {{ bookingStatus(v.booking.status) }} ·
+        {{ v.booking.guaranteedPax }} guaranteed, {{ v.booking.expectedMaxPax }} expected max
+      </p>
+    </div>
+    <div class="head-actions">
+      <a class="button" [routerLink]="['/operations/billing', v.booking.id, 'print']" [queryParams]="{ doc: bill() ? 'bill' : 'proforma' }">Print</a>
+    </div>
+  </div>
+
+  @if (error(); as e) { <p class="alert error" role="alert">{{ e }}</p> }
+  @if (notice(); as n) { <p class="alert ok" role="status">{{ n }}</p> }
+
+  @if (!bill()) {
+    <section class="card">
+      <h2>Proforma on guaranteed pax</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Item</th><th>Type</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Taxable</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
+          <tbody>
+            @for (l of v.proforma.lines; track $index) {
+              <tr>
+                <td>{{ l.label }} @if (l.taxInclusive) { <span class="pill">incl. tax</span> }</td>
+                <td>{{ aTypes[l.aType] }}</td>
+                <td class="num">{{ l.qty }}</td>
+                <td class="num">{{ money(l.rate) }}</td>
+                <td class="num">{{ money(l.taxable) }}</td>
+                <td class="num">{{ money(l.total - l.taxable) }}</td>
+                <td class="num">{{ money(l.total) }}</td>
+              </tr>
+            } @empty {
+              <tr><td colspan="7" class="muted">No packages or extras on the booking yet.</td></tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      <dl class="totals">
+        <dt>Taxable</dt><dd>{{ money(v.proforma.taxable) }}</dd>
+        @for (t of v.proforma.taxes; track t.id) { <dt>{{ t.name }}</dt><dd>{{ money(t.amount) }}</dd> }
+        @if (v.proforma.roundOff) { <dt>Round off</dt><dd>{{ money(v.proforma.roundOff) }}</dd> }
+        <dt class="grand">Total {{ currency() }}</dt><dd class="grand">{{ money(v.proforma.total) }}</dd>
+        <dt>Advances received</dt><dd>{{ money(v.proforma.advances) }}</dd>
+      </dl>
+      @if (v.voided.length) {
+        <p class="muted small">Voided bills: @for (x of v.voided; track x.id) { {{ x.number ?? 'draft' }} ({{ x.voidReason }}){{ $last ? '' : ', ' }} }</p>
+      }
+      <div class="actions">
+        @if (['confirmed', 'inFunction', 'completed'].includes(v.booking.status)) {
+          <button class="primary" (click)="startDraft()" [disabled]="busy()">Start the bill</button>
+        } @else {
+          <p class="muted">A bill can be started once the booking is confirmed.</p>
+        }
+      </div>
+    </section>
+  } @else {
+    @let b = bill()!;
+    @for (w of b.warnings; track w) { <p class="alert warn-box">⚠ {{ w }}</p> }
+    @if (b.status === 'void') { <p class="alert error">Void: {{ b.voidReason }}</p> }
+
+    <section class="card">
+      <div class="table-wrap">
+        <table class="lines">
+          <thead>
+            <tr>
+              <th>Item</th><th class="num">Guaranteed</th><th class="num">Actual</th><th class="num">Qty billed</th><th class="num">Rate</th>
+              <th class="num">Discount</th><th class="num">Taxable</th><th class="num">Tax</th><th class="num">Total</th>
+              @if (isDraft()) { <th></th> }
+            </tr>
+          </thead>
+          <tbody>
+            @for (r of rows(); track $index) {
+              <tr [class.new]="!r.priced">
+                <td>
+                  @if (isDraft() && r.source === 'running' && !r.itemId && !r.id) {
+                    <input class="w-label" [(ngModel)]="r.label" (ngModelChange)="changed()" placeholder="Describe the charge" aria-label="Charge" />
+                  } @else if (isDraft() && r.source === 'liquorLicence') {
+                    <input class="w-label" [(ngModel)]="r.label" (ngModelChange)="changed()" aria-label="Licence" />
+                  } @else {
+                    {{ r.label }}
+                  }
+                  <div class="tags">
+                    <span class="pill">{{ sourceLabels[r.source] }}</span>
+                    @if (r.source !== 'package') { <span class="pill">{{ aTypes[r.aType] }}</span> }
+                    @if (r.taxInclusive) { <span class="pill">incl. tax</span> }
+                    @if (r.remark) { <span class="muted small">{{ r.remark }}</span> }
+                  </div>
+                </td>
+                <td class="num">{{ r.guaranteedPax ?? '' }}</td>
+                <td class="num">
+                  @if (r.source === 'package') {
+                    @if (isDraft()) {
+                      <input type="number" min="0" step="1" class="w-num" [(ngModel)]="r.actualPax" (ngModelChange)="changed()" aria-label="Actual pax" />
+                    } @else { {{ r.actualPax }} }
+                  }
+                </td>
+                <td class="num">
+                  @if (isDraft() && r.source !== 'package') {
+                    <input type="number" min="0" step="any" class="w-num" [(ngModel)]="r.qty" (ngModelChange)="changed()" aria-label="Quantity" />
+                  } @else { {{ r.priced?.qty ?? r.qty }} }
+                </td>
+                <td class="num">
+                  @if (isDraft() && isAdded(r)) {
+                    <input type="number" min="0" step="any" class="w-num" [(ngModel)]="r.rate" (ngModelChange)="changed()" aria-label="Rate" />
+                  } @else { {{ money(r.rate) }} }
+                </td>
+                <td class="num">{{ r.priced ? money(r.priced.discount) : '' }}</td>
+                <td class="num">{{ r.priced ? money(r.priced.taxable) : '' }}</td>
+                <td class="num">{{ r.priced ? money(r.priced.total - r.priced.taxable) : '' }}</td>
+                <td class="num"><strong>{{ r.priced ? money(r.priced.total) : '' }}</strong></td>
+                @if (isDraft()) {
+                  <td class="nowrap">
+                    <button class="link" (click)="r.open = !r.open" [attr.aria-expanded]="r.open">{{ r.open ? 'Close' : 'More' }}</button>
+                    @if (r.source !== 'package') { <button class="link danger" (click)="remove(r)">Remove</button> }
+                  </td>
+                }
+              </tr>
+              @if (isDraft() && r.open) {
+                <tr class="detail">
+                  <td colspan="10">
+                    <div class="detail-grid">
+                      <fieldset>
+                        <legend>Discount</legend>
+                        <div class="row">
+                          <select [(ngModel)]="r.discountType" (ngModelChange)="changed()" aria-label="Discount type">
+                            <option value="percent">%</option><option value="amount">Amount</option>
+                          </select>
+                          <input type="number" min="0" step="any" class="w-num" [(ngModel)]="r.discountValue" (ngModelChange)="changed()" aria-label="Discount" />
+                          <input [(ngModel)]="r.discountReason" (ngModelChange)="changed()" placeholder="Reason (required)" aria-label="Discount reason" />
+                        </div>
+                      </fieldset>
+                      <fieldset>
+                        <legend>Taxes @if (r.taxIds === null) { <span class="muted">(defaults on save)</span> }</legend>
+                        @for (t of taxes(); track t.id) {
+                          <label class="inline">
+                            <input type="checkbox" [checked]="r.taxIds?.includes(t.id)" (change)="toggleTax(r, t.id, $any($event.target).checked)" />
+                            {{ t['description'] }}
+                          </label>
+                        } @empty { <span class="muted">No taxes set up for this property.</span> }
+                        @if (isAdded(r)) {
+                          <label class="inline"><input type="checkbox" [(ngModel)]="r.taxInclusive" (ngModelChange)="changed()" /> Rate includes tax</label>
+                        }
+                      </fieldset>
+                      @if (r.source === 'running' && !r.itemId && !r.id) {
+                        <fieldset>
+                          <legend>Type</legend>
+                          <select [(ngModel)]="r.aType" (ngModelChange)="changed()" aria-label="Type">
+                            <option value="alacarte">Ala carte</option><option value="services">Service</option>
+                          </select>
+                        </fieldset>
+                      }
+                      <label>Remark <input [(ngModel)]="r.remark" (ngModelChange)="changed()" maxlength="200" /></label>
+                    </div>
+                  </td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+
+      @if (isDraft()) {
+        <div class="add-bar">
+          <select [(ngModel)]="addItemId" aria-label="Add an item">
+            <option value="">Add ala carte or service item…</option>
+            @for (i of addable(); track i.key) { <option [value]="i.key">{{ i.name }} ({{ aTypes[i.aType] }})</option> }
+          </select>
+          <button (click)="addItem()" [disabled]="!addItemId">Add</button>
+          <button (click)="addCharge()">Other charge</button>
+          @for (h of v.booking.halls; track h.hallId + h.start) {
+            <button (click)="addHallHire(h)">Hall hire: {{ hallName(h.hallId) }} <span class="muted">({{ h.hours }} h)</span></button>
+          }
+          <button (click)="addLicence()">Liquor licence</button>
+        </div>
+        <p class="muted small">Hall hire: enter 1 for a fixed charge or the hours ({{ v.booking.halls[0]?.hours ?? 0 }} h booked) for an hourly rate.</p>
+      }
+
+      <div class="bottom">
+        <div class="bill-discount">
+          @if (isDraft()) {
+            <fieldset>
+              <legend>Discount on the bill</legend>
+              <div class="row">
+                <select [(ngModel)]="billDiscount.type" (ngModelChange)="changed()" aria-label="Bill discount type">
+                  <option value="percent">%</option><option value="amount">Amount</option>
+                </select>
+                <input type="number" min="0" step="any" class="w-num" [(ngModel)]="billDiscount.value" (ngModelChange)="changed()" aria-label="Bill discount" />
+                <input [(ngModel)]="billDiscount.reason" (ngModelChange)="changed()" placeholder="Reason (required)" aria-label="Bill discount reason" />
+              </div>
+            </fieldset>
+          } @else if (b.billDiscount) {
+            <p class="muted">Bill discount: {{ b.billDiscount.type === 'percent' ? b.billDiscount.value + '%' : money(b.billDiscount.value) }} ({{ b.billDiscount.reason }})</p>
+          }
+        </div>
+        <dl class="totals" [class.stale]="dirty()">
+          <dt>Amount</dt><dd>{{ money(b.amount) }}</dd>
+          @if (b.discount) { <dt>Discounts</dt><dd>−{{ money(b.discount) }}</dd> }
+          <dt>Taxable</dt><dd>{{ money(b.taxable) }}</dd>
+          @for (t of b.taxes; track t.id) { <dt>{{ t.name }}</dt><dd>{{ money(t.amount) }}</dd> }
+          @if (b.roundOff) { <dt>Round off</dt><dd>{{ money(b.roundOff) }}</dd> }
+          <dt class="grand">Total {{ currency() }}</dt><dd class="grand">{{ money(b.total) }}</dd>
+          <dt>Advances</dt><dd>−{{ money(b.advances) }}</dd>
+          @if (b.paid) { <dt>Paid on bill</dt><dd>−{{ money(b.paid) }}</dd> }
+          <dt class="grand">{{ b.balance < 0 ? 'Due to guest' : 'Balance' }}</dt><dd class="grand">{{ money(b.balance < 0 ? -b.balance : b.balance) }}</dd>
+        </dl>
+      </div>
+      @if (dirty()) { <p class="muted small right">Totals update when you save.</p> }
+
+      @if (isDraft()) {
+        <div class="actions">
+          <button (click)="refresh()" [disabled]="busy()" title="Re-read packages and booked items after the booking was amended">Refresh from booking</button>
+          <button (click)="confirmingVoid = true" [disabled]="busy()">Discard draft</button>
+          <button (click)="save()" [disabled]="busy() || !dirty()">Save and recalculate</button>
+          <button class="primary" (click)="finalise()" [disabled]="busy()">Finalise bill</button>
+        </div>
+        <p class="muted small right">Finalising issues the bill number and locks the bill. The function must be completed first.</p>
+      }
+    </section>
+
+    @if (b.status !== 'draft' && b.status !== 'void') {
+      <section class="card">
+        <h2>Settlement</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Number</th><th>Date</th><th>Type</th><th>Mode</th><th>Reference</th><th class="num">Amount</th></tr></thead>
+            <tbody>
+              @for (a of b.advanceReceipts; track a.number) {
+                <tr><td>{{ a.number }}</td><td>{{ a.date }}</td><td>Advance</td><td>{{ modeLabels[a.mode] ?? a.mode }}</td><td></td><td class="num">{{ money(a.amount) }}</td></tr>
+              }
+              @for (p of b.payments; track p.number) {
+                <tr><td>{{ p.number }}</td><td>{{ p.date }}</td><td>{{ p.kind === 'refund' ? 'Refund' : 'Payment' }}</td><td>{{ modeLabels[p.mode] ?? p.mode }}</td><td>{{ p.reference }}</td>
+                  <td class="num">{{ p.kind === 'refund' ? '−' : '' }}{{ money(p.amount) }}</td></tr>
+              }
+              @if (!b.advanceReceipts.length && !b.payments.length) { <tr><td colspan="6" class="muted">Nothing received yet.</td></tr> }
+            </tbody>
+          </table>
+        </div>
+        @if (canPay()) {
+          <form class="pay" (ngSubmit)="pay()">
+            <label>Type
+              <select name="kind" [(ngModel)]="payment.kind">
+                <option value="payment">Payment</option><option value="refund">Refund to guest</option>
+              </select>
+            </label>
+            <label>Amount <input type="number" name="amount" min="0" step="any" [(ngModel)]="payment.amount" required /></label>
+            <label>Mode
+              <select name="mode" [(ngModel)]="payment.mode">
+                @for (m of modes; track m[0]) { <option [value]="m[0]">{{ m[1] }}</option> }
+              </select>
+            </label>
+            <label>Date <input type="date" name="date" [(ngModel)]="payment.date" /></label>
+            <label>Reference <input name="reference" [(ngModel)]="payment.reference" maxlength="100" /></label>
+            <div class="pay-actions">
+              <button type="button" class="link" (click)="fillBalance()">Whole {{ b.balance < 0 ? 'refund' : 'balance' }}</button>
+              <button class="primary" type="submit" [disabled]="busy() || !payment.amount">Record</button>
+            </div>
+          </form>
+        }
+        @if (b.status === 'finalised' || (b.status === 'partiallySettled' && !b.payments.length)) {
+          <p class="right"><button class="link danger" (click)="confirmingVoid = true">Void this bill</button></p>
+        }
+      </section>
+    }
+
+    @if (confirmingVoid) {
+      <section class="card void-box">
+        <h2>{{ isDraft() ? 'Discard the draft' : 'Void bill ' + b.number }}</h2>
+        <p class="muted">The booking can then be billed again. A void is kept on record with its reason.</p>
+        <label>Reason <input [(ngModel)]="voidReason" maxlength="300" /></label>
+        <div class="actions">
+          <button (click)="confirmingVoid = false">Keep it</button>
+          <button class="primary danger-btn" (click)="voidBill()" [disabled]="busy() || !voidReason.trim()">{{ isDraft() ? 'Discard' : 'Void' }}</button>
+        </div>
+      </section>
+    }
+
+    <details class="history">
+      <summary>History</summary>
+      <ul>
+        @for (h of b.history; track $index) { <li>{{ h.at | date: 'medium' }}: {{ h.action }} @if (h.note) { ({{ h.note }}) }</li> }
+      </ul>
+    </details>
+  }
+} @else if (error(); as e) {
+  <p class="alert error" role="alert">{{ e }}</p>
+} @else {
+  <p class="muted">Loading…</p>
+}
