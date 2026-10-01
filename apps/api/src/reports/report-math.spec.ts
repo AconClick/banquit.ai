@@ -109,4 +109,40 @@ describe('report calculations', () => {
     ]);
     expect(demand.extras).toEqual([{ itemId: 'dj', name: 'DJ Console', aType: 'services', qty: 3, provisionalQty: 2 }]);
   });
+
+  it('adds up revenue from final bills, by A-Type, source and tax, in one currency', () => {
+    const bill = (over: Partial<math.BillLike>): math.BillLike => ({
+      id: 'b', number: 'B/1', propertyId: 'p1', reservationId: 'r', reservationNumber: 'R-1', hostName: 'Host', functionDate: '2030-07-01',
+      status: 'settled',
+      totals: {
+        amount: 1100, discount: 100, taxable: 1000, taxTotal: 50, roundOff: 0, total: 1050,
+        taxes: [{ id: 'gst', name: 'GST 5%', amount: 50 }],
+        lines: [
+          { aType: 'package', source: 'package', taxable: 800, taxes: [{ amount: 40 }], total: 840 },
+          { aType: 'services', source: 'hallHire', taxable: 200, taxes: [{ amount: 10 }], total: 210 },
+        ],
+      },
+      advances: [{ amount: 300 }], payments: [{ kind: 'payment', amount: 800 }, { kind: 'refund', amount: 50 }],
+      ...over,
+    });
+    const report = math.revenue([
+      bill({}),
+      bill({ id: 'b2', number: 'B/2', status: 'finalised', advances: [], payments: [] }),
+      bill({ id: 'b3', status: 'draft' }),
+      bill({ id: 'b4', status: 'void' }),
+      bill({ id: 'b5', functionDate: '2030-08-01' }),
+    ], new Map([['p1', 'INR']]), '2030-07-01', '2030-07-31');
+    expect(report.total).toMatchObject({ bills: 2, discount: 200, taxable: 2000, taxTotal: 100, total: 2100, collected: 1050, balance: 1050 });
+    expect(report.byAType).toEqual([
+      { key: 'package', label: 'Packages', taxable: 1600, tax: 80, total: 1680 },
+      { key: 'services', label: 'Services', taxable: 400, tax: 20, total: 420 },
+    ]);
+    expect(report.bySource.map((r) => r.label)).toEqual(['Packages', 'Hall hire']);
+    expect(report.taxes).toEqual([{ id: 'gst', name: 'GST 5%', amount: 100 }]);
+    expect(report.bills.map((b) => [b.number, b.balance])).toEqual([['B/1', 0], ['B/2', 1050]]);
+
+    const mixed = math.revenue([bill({}), bill({ id: 'b2', propertyId: 'p2' })], new Map([['p1', 'INR'], ['p2', 'AED']]), '2030-07-01', '2030-07-31');
+    expect(mixed).toMatchObject({ mixedCurrencies: true, total: null, currency: null, byAType: [] });
+    expect(mixed.byProperty.map((p) => [p.currency, p.total])).toEqual([['INR', 1050], ['AED', 1050]]);
+  });
 });

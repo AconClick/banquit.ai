@@ -167,6 +167,15 @@ export class Reports implements OnInit {
     return parts.join(' · ');
   }
 
+  protected readonly billStatusLabels: Record<string, string> = {
+    finalised: 'Final, unpaid', partiallySettled: 'Part paid', settled: 'Settled',
+  };
+
+  /** Amounts with two decimals, grouped the viewer's way; the currency code is shown beside them. */
+  protected money(n: number) {
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
   protected print() {
     window.print();
   }

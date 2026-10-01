@@ -211,7 +211,80 @@
 
   @case ('revenue') {
     @if (revenue(); as r) {
-      <p class="alert">{{ r.message }}</p>
+      <p class="muted">Final bills for functions between these dates, paid or not. Draft and void bills are left out.</p>
+      @if (r.total; as t) {
+        <div class="tiles">
+          <div class="tile"><span class="muted">Revenue before tax ({{ r.currency }})</span><strong>{{ money(t.taxable) }}</strong></div>
+          <div class="tile"><span class="muted">Tax</span><strong>{{ money(t.taxTotal) }}</strong></div>
+          <div class="tile"><span class="muted">Billed</span><strong>{{ money(t.total) }}</strong></div>
+          <div class="tile"><span class="muted">Collected</span><strong>{{ money(t.collected) }}</strong></div>
+          <div class="tile"><span class="muted">Still to collect</span><strong>{{ money(t.balance) }}</strong></div>
+        </div>
+        <div class="demand">
+          <table class="report">
+            <thead><tr><th>By type (PAS)</th><th class="num">Before tax</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
+            <tbody>
+              @for (x of r.byAType; track x.key) {
+                <tr><td>{{ x.label }}</td><td class="num">{{ money(x.taxable) }}</td><td class="num">{{ money(x.tax) }}</td><td class="num">{{ money(x.total) }}</td></tr>
+              } @empty { <tr><td colspan="4" class="muted">No final bills in this range.</td></tr> }
+            </tbody>
+          </table>
+          <table class="report">
+            <thead><tr><th>By source</th><th class="num">Before tax</th><th class="num">Total</th></tr></thead>
+            <tbody>
+              @for (x of r.bySource; track x.key) {
+                <tr><td>{{ x.label }}</td><td class="num">{{ money(x.taxable) }}</td><td class="num">{{ money(x.total) }}</td></tr>
+              } @empty { <tr><td colspan="3" class="muted">No final bills in this range.</td></tr> }
+            </tbody>
+          </table>
+          <table class="report">
+            <thead><tr><th>Tax</th><th class="num">Amount</th></tr></thead>
+            <tbody>
+              @for (x of r.taxes; track x.id) {
+                <tr><td>{{ x.name }}</td><td class="num">{{ money(x.amount) }}</td></tr>
+              } @empty { <tr><td colspan="2" class="muted">No tax charged.</td></tr> }
+            </tbody>
+          </table>
+        </div>
+      } @else {
+        <p class="alert">These properties bill in different currencies, so totals are shown per property only.</p>
+      }
+      @if (allProperties() || r.mixedCurrencies) {
+        <table class="report">
+          <thead><tr><th>Property</th><th>Currency</th><th class="num">Bills</th><th class="num">Before tax</th><th class="num">Tax</th><th class="num">Billed</th><th class="num">Collected</th><th class="num">Still to collect</th></tr></thead>
+          <tbody>
+            @for (p of r.byProperty; track p.propertyId) {
+              <tr>
+                <td>{{ propertyNames().get(p.propertyId) }}</td><td>{{ p.currency }}</td><td class="num">{{ p.bills }}</td>
+                <td class="num">{{ money(p.taxable) }}</td><td class="num">{{ money(p.taxTotal) }}</td><td class="num">{{ money(p.total) }}</td>
+                <td class="num">{{ money(p.collected) }}</td><td class="num">{{ money(p.balance) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+      <table class="report">
+        <thead>
+          <tr>
+            <th>Function date</th><th>Bill</th><th>Booking</th><th>Host</th>@if (allProperties()) { <th>Property</th> }<th>Status</th>
+            <th class="num">Billed</th><th class="num">Collected</th><th class="num">Still to collect</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (b of r.bills; track b.id) {
+            <tr>
+              <td>{{ dayLabel(b.functionDate) }}</td>
+              <td><a [routerLink]="['/operations/billing', b.id]">{{ b.number }}</a></td>
+              <td><a [routerLink]="['/operations/bookings', b.reservationId]">{{ b.reservationNumber }}</a></td>
+              <td>{{ b.hostName }}</td>@if (allProperties()) { <td>{{ propertyNames().get(b.propertyId) }}</td> }
+              <td>{{ billStatusLabels[b.status] ?? b.status }}</td>
+              <td class="num">{{ b.currency }} {{ money(b.total) }}</td><td class="num">{{ money(b.collected) }}</td><td class="num">{{ money(b.balance) }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="9" class="muted">No final bills for functions in this range.</td></tr>
+          }
+        </tbody>
+      </table>
     }
   }
 }
