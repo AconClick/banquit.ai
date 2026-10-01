@@ -1,0 +1,186 @@
+<div class="toolbar">
+  <h1>Reports</h1>
+  <label class="inline">Property
+    <select [ngModel]="propertyId()" (ngModelChange)="changeProperty($event)" name="property">
+      @if (properties().length > 1) { <option value="">All properties</option> }
+      @for (p of properties(); track p.id) { <option [value]="p.id">{{ p['name'] }}</option> }
+    </select>
+  </label>
+  <div class="range">
+    <button (click)="shift(-1)" aria-label="Earlier">◀</button>
+    <label class="inline">From <input type="date" [value]="from()" (change)="setRange($any($event.target).value, to())" /></label>
+    <label class="inline">To <input type="date" [value]="to()" (change)="setRange(from(), $any($event.target).value)" /></label>
+    <button (click)="shift(1)" aria-label="Later">▶</button>
+  </div>
+  <span class="spacer"></span>
+  <button (click)="print()">Print</button>
+</div>
+
+<nav class="tabs" role="tablist">
+  @for (t of tabs; track t.kind) {
+    <button role="tab" [class.active]="tab() === t.kind" [attr.aria-selected]="tab() === t.kind" (click)="selectTab(t.kind)">{{ t.label }}</button>
+  }
+</nav>
+
+@if (error(); as e) {
+  <p class="alert error" role="alert">{{ e }}</p>
+}
+@if (loading()) {
+  <p class="muted">Loading…</p>
+}
+
+@switch (tab()) {
+  @case ('forecast') {
+    @if (forecast(); as f) {
+      <div class="legend">
+        @for (l of legend; track l.state) { <span class="key"><i [class]="'c-' + l.state"></i>{{ l.label }}</span> }
+        <span class="muted">A hall shows its strongest claim for the day. Hover a cell for hours held and booking numbers.</span>
+      </div>
+      @if (!f.halls.length) {
+        <p class="alert">No active halls for this selection. Add halls in the Master panel.</p>
+      } @else {
+        <div class="scroll">
+          <table class="grid">
+            <thead>
+              <tr>
+                <th class="sticky">Hall</th>
+                @for (d of f.dates; track d) { <th [class.today]="d === today">{{ dayLabel(d) }}</th> }
+              </tr>
+            </thead>
+            <tbody>
+              @for (h of f.halls; track h.hallId) {
+                <tr>
+                  <th class="sticky">
+                    {{ h.hallName }}
+                    <small class="muted">{{ h.capacity }} covers@if (allProperties()) {, {{ propertyNames().get(h.propertyId) }}}</small>
+                  </th>
+                  @for (c of h.days; track c.date) {
+                    <td [class]="'c-' + c.state" [title]="cellTitle(h.hallName, c)">
+                      @if (c.heldHours) { {{ c.heldHours }} h }
+                    </td>
+                  }
+                </tr>
+              }
+            </tbody>
+            <tfoot>
+              <tr><th class="sticky">Halls available</th>@for (d of f.days; track d.date) { <td>{{ d.hallsAvailable }} / {{ d.hallsTotal }}</td> }</tr>
+              <tr><th class="sticky">Functions</th>@for (d of f.days; track d.date) { <td>{{ d.functions }}</td> }</tr>
+              <tr><th class="sticky">Guaranteed pax</th>@for (d of f.days; track d.date) { <td>{{ d.guaranteedPax }}</td> }</tr>
+              <tr><th class="sticky">Expected max pax</th>@for (d of f.days; track d.date) { <td>{{ d.expectedMaxPax }}</td> }</tr>
+              <tr><th class="sticky">Enquiry pax</th>@for (d of f.days; track d.date) { <td class="muted">{{ d.tentativePax }}</td> }</tr>
+            </tfoot>
+          </table>
+        </div>
+        @if (!f.menus.available) { <p class="alert">{{ f.menus.message }}</p> }
+      }
+    }
+  }
+
+  @case ('status') {
+    @if (status(); as s) {
+      <p class="muted">Bookings whose function falls between these dates.</p>
+      <table class="report">
+        <thead><tr><th>Status</th><th class="num">Bookings</th><th class="num">Guaranteed pax</th><th class="num">Expected max pax</th></tr></thead>
+        <tbody>
+          @for (r of s.rows; track r.status) {
+            <tr><td>{{ statusLabels[r.status] }}</td><td class="num">{{ r.bookings }}</td><td class="num">{{ r.guaranteedPax }}</td><td class="num">{{ r.expectedMaxPax }}</td></tr>
+          } @empty {
+            <tr><td colspan="4" class="muted">No bookings in this range.</td></tr>
+          }
+        </tbody>
+        <tfoot><tr><th>Total</th><th class="num">{{ s.total.bookings }}</th><th class="num">{{ s.total.guaranteedPax }}</th><th class="num">{{ s.total.expectedMaxPax }}</th></tr></tfoot>
+      </table>
+    }
+  }
+
+  @case ('occupancy') {
+    @if (occupancy(); as o) {
+      <p class="muted">A hall is used on a day when a confirmed or provisional booking holds it.</p>
+      <table class="report">
+        <thead>
+          <tr>
+            <th>Hall</th>@if (allProperties()) { <th>Property</th> }
+            <th class="num">Functions</th><th class="num">Confirmed hours</th><th class="num">Provisional hours</th><th class="num">Blocked hours</th>
+            <th class="num">Days used</th><th class="num">Occupancy</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (r of o.rows; track r.hallId) {
+            <tr>
+              <td>{{ r.hallName }}</td>@if (allProperties()) { <td>{{ propertyNames().get(r.propertyId) }}</td> }
+              <td class="num">{{ r.functions }}</td><td class="num">{{ r.confirmedHours }}</td><td class="num">{{ r.provisionalHours }}</td>
+              <td class="num">{{ r.blockedHours }}</td><td class="num">{{ r.daysUsed }} / {{ r.daysInRange }}</td>
+              <td class="num"><span class="bar"><i [style.width.%]="r.occupancyPercent"></i></span>{{ r.occupancyPercent }}%</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="8" class="muted">No active halls for this selection.</td></tr>
+          }
+        </tbody>
+      </table>
+    }
+  }
+
+  @case ('conversion') {
+    @if (conversion(); as c) {
+      <p class="muted">Bookings taken between these dates and what became of them. Conversion counts bookings that reached Confirmed, including ones cancelled later.</p>
+      <div class="tiles">
+        <div class="tile"><span class="muted">Received</span><strong>{{ c.total.received }}</strong></div>
+        <div class="tile"><span class="muted">Conversion</span><strong>{{ c.total.conversionPercent }}%</strong></div>
+        <div class="tile"><span class="muted">Of decided bookings</span><strong>{{ c.total.decidedConversionPercent }}%</strong></div>
+        <div class="tile"><span class="muted">Still open</span><strong>{{ c.total.open }}</strong></div>
+      </div>
+      <table class="report">
+        <thead>
+          <tr>
+            <th>Function type</th><th class="num">Received</th><th class="num">Confirmed</th><th class="num">Open</th><th class="num">Lost</th>
+            <th class="num">Cancelled before confirming</th><th class="num">Cancelled after confirming</th><th class="num">Conversion</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (r of c.byFunctionType; track r.functionTypeId) {
+            <tr>
+              <td>{{ r.functionType }}</td><td class="num">{{ r.received }}</td><td class="num">{{ r.converted }}</td><td class="num">{{ r.open }}</td>
+              <td class="num">{{ r.lost }}</td><td class="num">{{ r.cancelledBeforeConfirm }}</td><td class="num">{{ r.cancelledAfterConfirm }}</td>
+              <td class="num">{{ r.conversionPercent }}%</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="8" class="muted">No bookings were taken in this range.</td></tr>
+          }
+        </tbody>
+      </table>
+    }
+  }
+
+  @case ('sheets') {
+    @if (sheets(); as s) {
+      <p class="muted">Confirmed functions in date and time order. Menus and services will show here once booking details are recorded.</p>
+      <table class="report">
+        <thead>
+          <tr>
+            <th>Date</th><th>Time</th><th>Hall</th>@if (allProperties()) { <th>Property</th> }<th>Booking</th><th>Host</th><th>Function</th>
+            <th class="num">Guaranteed</th><th class="num">Expected max</th><th class="num">Actual</th><th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (r of s.rows; track r.reservationId + r.start + r.hallId) {
+            <tr>
+              <td>{{ dayLabel(r.date) }}</td><td>{{ r.start.slice(11) }}–{{ r.end.slice(11) }}</td><td>{{ r.hall }}</td>
+              @if (allProperties()) { <td>{{ propertyNames().get(r.propertyId) }}</td> }
+              <td>{{ r.number }}</td><td>{{ r.hostName }}</td><td>{{ r.functionType }}</td>
+              <td class="num">{{ r.guaranteedPax }}</td><td class="num">{{ r.expectedMaxPax }}</td><td class="num">{{ r.actualPax ?? '' }}</td>
+              <td>{{ statusLabels[r.status] }}</td>
+            </tr>
+          } @empty {
+            <tr><td colspan="11" class="muted">No confirmed functions in this range.</td></tr>
+          }
+        </tbody>
+      </table>
+    }
+  }
+
+  @case ('revenue') {
+    @if (revenue(); as r) {
+      <p class="alert">{{ r.message }}</p>
+    }
+  }
+}

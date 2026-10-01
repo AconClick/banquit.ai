@@ -6,6 +6,7 @@ import { MasterPage } from './master/master-page';
 import { RolesPage } from './master/roles-page';
 import { UsersPage } from './master/users-page';
 import { Diary } from './operations/diary/diary';
+import { Reports } from './operations/reports/reports';
 import { Shell } from './shell';
 
 export const routes: Routes = [
@@ -16,7 +17,10 @@ export const routes: Routes = [
     path: 'operations',
     component: Shell,
     canActivate: [activityGuard('operations')],
-    children: [{ path: '', component: Diary, title: 'Reservation Diary · Banquet.ai' }],
+    children: [
+      { path: '', component: Diary, title: 'Reservation Diary · Banquet.ai' },
+      { path: 'reports', component: Reports, title: 'Reports · Banquet.ai' },
+    ],
   },
   {
     path: 'master',
