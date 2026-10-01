@@ -72,7 +72,11 @@ export class BillingSetupService {
       const seq = (await this.current(tenantId, doc, propertyId, values.series[doc], fy)) + 1;
       next[doc] = { seq, number: formatNumber(values.series[doc], fy, seq) };
     }
-    return { propertyId, ...values, financialYear: fy, next, ...(await this.money(tenantId, propertyId)), gstStates: GST_STATES };
+    // The property's taxes, so the GST section can say which is CGST, SGST, IGST or cess.
+    const taxes = (await this.masters.list(tenantId, 'tax', true))
+      .filter((t) => (t.values.propertyIds as string[] | undefined)?.includes(propertyId))
+      .map((t) => ({ id: t.id as string, name: String(t.values.description ?? ''), type: String(t.values.taxType ?? ''), rate: Number(t.values.rate ?? 0) }));
+    return { propertyId, ...values, financialYear: fy, next, ...(await this.money(tenantId, propertyId)), gstStates: GST_STATES, taxes };
   }
 
   async save(tenantId: Types.ObjectId, propertyId: string, input: BillingSetupInput) {

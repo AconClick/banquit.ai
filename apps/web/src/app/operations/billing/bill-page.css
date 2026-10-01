@@ -57,3 +57,13 @@ button.danger-btn { background: var(--danger); border-color: var(--danger); }
 .inline-form input { width: 14rem; max-width: 100%; }
 form.credit { display: grid; gap: 0.75rem; margin-top: 0.75rem; }
 tr.muted td { color: var(--muted); }
+.mono { font-family: ui-monospace, monospace; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.5rem 0.75rem; }
+.buyer-view, .einv dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0 0 0.5rem; }
+.buyer-view dt, .einv dt { color: var(--muted); }
+.buyer-view dd, .einv dd { margin: 0; }
+.einv { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+.qr { width: 140px; height: 140px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.irn { word-break: break-all; font-size: 0.8rem; }
+h3 { font-size: 0.95rem; margin: 1rem 0 0.5rem; }
+.alert.warn { background: var(--warn-bg); color: var(--warn); }

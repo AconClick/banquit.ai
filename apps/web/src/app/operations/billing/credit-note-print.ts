@@ -3,19 +3,24 @@ import { RouterLink } from '@angular/router';
 import { errorMessage } from '../../core/api.interceptor';
 import { TenantService } from '../../core/tenant.service';
 import { MasterRecord, MastersStore } from '../../master/masters-store';
-import { BillingApi, CreditNote, money } from './billing-api';
+import { BillingApi, CreditNote, CreditNoteGst, money } from './billing-api';
 import { DocLetterhead, DocNotes, DocPageSize } from './doc-parts';
+import { DocEInvoice, DocGstLines, DocGstParties } from './gst-parts';
 
 /** Printable credit note: quotes the original bill, and reverses its lines with their taxes. */
 @Component({
   selector: 'app-credit-note-print',
-  imports: [RouterLink, DocLetterhead, DocNotes, DocPageSize],
+  imports: [RouterLink, DocLetterhead, DocNotes, DocPageSize, DocEInvoice, DocGstLines, DocGstParties],
   template: `
     @if (note(); as n) {
       <div class="toolbar no-print">
         <a [routerLink]="['/operations/billing', id()]">‹ Back to the bill</a>
-        <button class="primary" (click)="print()">Print</button>
+        <span class="tools">
+          @if (canEInvoice()) { <button (click)="eInvoice()" [disabled]="busy()">Register e-invoice</button> }
+          <button class="primary" (click)="print()">Print</button>
+        </span>
       </div>
+      @if (error(); as e) { <p class="alert error no-print toolbar" role="alert">{{ e }}</p> }
       <article class="doc" [class.watermark]="n.status === 'cancelled'" data-mark="CANCELLED">
         <app-doc-page-size [size]="n.print?.paperSize" />
         <header>
@@ -26,6 +31,7 @@ import { DocLetterhead, DocNotes, DocPageSize } from './doc-parts';
             <p class="muted">{{ n.date }}</p>
           </div>
         </header>
+        <app-doc-einvoice [gst]="gst()" />
         <table class="facts">
           <tbody>
             <tr><th>Issued to</th><td>{{ n.hostName }}</td><th>Against bill</th><td>{{ n.billNumber }} of {{ n.billDate }}<br />Booking {{ n.reservationNumber }}</td></tr>
@@ -33,22 +39,27 @@ import { DocLetterhead, DocNotes, DocPageSize } from './doc-parts';
             @if (n.status === 'cancelled') { <tr><th>Cancelled</th><td colspan="3">{{ n.cancelReason }}</td></tr> }
           </tbody>
         </table>
-        <table class="list">
-          <thead><tr><th>Description</th><th class="num">Taxable</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
-          <tbody>
-            @for (l of n.lines; track l.billLineId) {
-              <tr><td>{{ l.label }}</td><td class="num">{{ m(l.taxable) }}</td><td class="num">{{ m(l.total - l.taxable) }}</td><td class="num">{{ m(l.total) }}</td></tr>
-            }
-          </tbody>
-        </table>
-        <div class="sums">
-          <dl>
-            <dt>Taxable value</dt><dd>{{ m(n.taxable) }}</dd>
-            @for (t of n.taxes; track t.id) { <dt>{{ t.name }}</dt><dd>{{ m(t.amount) }}</dd> }
-            @if (n.roundOff) { <dt>Round off</dt><dd>{{ m(n.roundOff) }}</dd> }
-            <dt class="grand">Credit {{ n.currency }}</dt><dd class="grand">{{ m(n.total) }}</dd>
-          </dl>
-        </div>
+        @if (gst(); as g) {
+          <app-doc-gst-parties [gst]="g" [buyer]="g.buyer" />
+          <app-doc-gst-lines [gst]="g" [totalLabel]="'Credit ' + n.currency" />
+        } @else {
+          <table class="list">
+            <thead><tr><th>Description</th><th class="num">Taxable</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
+            <tbody>
+              @for (l of n.lines; track l.billLineId) {
+                <tr><td>{{ l.label }}</td><td class="num">{{ m(l.taxable) }}</td><td class="num">{{ m(l.total - l.taxable) }}</td><td class="num">{{ m(l.total) }}</td></tr>
+              }
+            </tbody>
+          </table>
+          <div class="sums">
+            <dl>
+              <dt>Taxable value</dt><dd>{{ m(n.taxable) }}</dd>
+              @for (t of n.taxes; track t.id) { <dt>{{ t.name }}</dt><dd>{{ m(t.amount) }}</dd> }
+              @if (n.roundOff) { <dt>Round off</dt><dd>{{ m(n.roundOff) }}</dd> }
+              <dt class="grand">Credit {{ n.currency }}</dt><dd class="grand">{{ m(n.total) }}</dd>
+            </dl>
+          </div>
+        }
         <app-doc-notes [print]="n.print" />
         <footer><div>{{ n.print?.signatureLabel || 'Authorised signatory' }}, {{ n.print?.legalName || tenantName() }}</div><div>Received by</div></footer>
       </article>
@@ -59,6 +70,7 @@ import { DocLetterhead, DocNotes, DocPageSize } from './doc-parts';
   styles: `
     :host { display: block; padding: 1rem 16px 2rem; }
     .toolbar { display: flex; justify-content: space-between; align-items: center; max-width: 900px; margin: 0 auto 1rem; }
+    .tools { display: flex; gap: 0.5rem; }
     .toolbar a { color: var(--primary); text-decoration: none; font-size: 0.9rem; }
     .doc { position: relative; max-width: 900px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 2rem; overflow: hidden; }
     .doc.watermark::before { content: attr(data-mark); position: absolute; inset: 0; display: grid; place-items: center; font-size: 6rem; font-weight: 800;
@@ -95,6 +107,12 @@ export class CreditNotePrint implements OnInit {
   protected readonly note = signal<CreditNote | null>(null);
   protected readonly properties = signal<MasterRecord[]>([]);
   protected readonly error = signal<string | null>(null);
+  protected readonly busy = signal(false);
+  protected readonly gst = signal<CreditNoteGst | null>(null);
+  protected readonly canEInvoice = computed(() => {
+    const g = this.gst();
+    return !!g?.eInvoiceOn && !!g.buyer.gstin && this.note()?.status === 'issued' && g.eInvoice?.status !== 'generated';
+  });
   protected readonly tenantName = computed(() => this.tenants.tenant()?.name ?? '');
   protected readonly property = computed(() => this.properties().find((p) => p.id === this.note()?.propertyId));
   protected readonly place = computed(() => {
@@ -104,8 +122,11 @@ export class CreditNotePrint implements OnInit {
 
   async ngOnInit() {
     try {
-      const [note, properties] = await Promise.all([this.api.creditNote(this.cnId()), this.store.list('property', true)]);
+      const [note, properties, gst] = await Promise.all([
+        this.api.creditNote(this.cnId()), this.store.list('property', true), this.api.creditNoteGst(this.cnId()),
+      ]);
       this.properties.set(properties);
+      this.gst.set(gst.gst);
       this.note.set(note);
     } catch (err) {
       this.error.set(errorMessage(err));
@@ -114,6 +135,18 @@ export class CreditNotePrint implements OnInit {
 
   protected m(n: number) {
     return money(n, this.note()?.decimals ?? 2);
+  }
+
+  protected async eInvoice() {
+    this.busy.set(true);
+    this.error.set(null);
+    try {
+      this.gst.set((await this.api.creditNoteEInvoice(this.cnId())).gst);
+    } catch (err) {
+      this.error.set(errorMessage(err));
+    } finally {
+      this.busy.set(false);
+    }
   }
 
   protected print() {

@@ -84,7 +84,96 @@ export interface Bill {
   paid: number;
   balance: number;
   warnings: string[];
+  /** GST invoice format: on for the property (drafts) or used when finalised. */
+  gstEnabled: boolean;
+  buyer: GstBuyer | null;
+  gst: GstView | null;
 }
+
+/** The guest's GST details. Without a GSTIN the bill is B2C. */
+export interface GstBuyer {
+  gstin: string;
+  legalName: string;
+  address: string;
+  location: string;
+  pincode: string;
+  placeOfSupply: string;
+}
+
+export interface GstLine {
+  slNo: number;
+  billLineId: string;
+  label: string;
+  sac: string;
+  qty: number;
+  gross: number;
+  discount: number;
+  taxable: number;
+  gstRate: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  cessRate: number;
+  cess: number;
+  cessFixed: number;
+  other: number;
+  total: number;
+}
+
+export interface GstInvoice {
+  intraState: boolean;
+  placeOfSupply: string;
+  b2b: boolean;
+  lines: GstLine[];
+  byRate: { gstRate: number; taxable: number; cgst: number; sgst: number; igst: number }[];
+  taxable: number;
+  cgst: number;
+  sgst: number;
+  igst: number;
+  cess: number;
+  other: number;
+  roundOff: number;
+  total: number;
+}
+
+export interface EInvoice {
+  status: 'generated' | 'cancelled';
+  irn: string;
+  ackNo: string;
+  ackDate: string;
+  provider: string;
+  /** From the test portal: not a valid IRN. */
+  sandbox: boolean;
+  cancelDate?: string;
+  cancelReason?: string;
+  /** QR code image (data URL) while generated. */
+  qr: string | null;
+}
+
+/** The GST view of a final bill or credit note. */
+export interface GstView {
+  seller: { gstin: string; legalName: string; tradeName: string; address1: string; address2: string; location: string; pincode: string; stateCode: string };
+  eInvoiceOn: boolean;
+  invoice: GstInvoice;
+  eInvoice: EInvoice | null;
+}
+
+/** GST state codes, for the place of supply (billing/gst.ts on the server). */
+export const GST_STATES: Record<string, string> = {
+  '01': 'Jammu and Kashmir', '02': 'Himachal Pradesh', '03': 'Punjab', '04': 'Chandigarh', '05': 'Uttarakhand', '06': 'Haryana',
+  '07': 'Delhi', '08': 'Rajasthan', '09': 'Uttar Pradesh', '10': 'Bihar', '11': 'Sikkim', '12': 'Arunachal Pradesh', '13': 'Nagaland',
+  '14': 'Manipur', '15': 'Mizoram', '16': 'Tripura', '17': 'Meghalaya', '18': 'Assam', '19': 'West Bengal', '20': 'Jharkhand',
+  '21': 'Odisha', '22': 'Chhattisgarh', '23': 'Madhya Pradesh', '24': 'Gujarat', '26': 'Dadra and Nagar Haveli and Daman and Diu',
+  '27': 'Maharashtra', '29': 'Karnataka', '30': 'Goa', '31': 'Lakshadweep', '32': 'Kerala', '33': 'Tamil Nadu', '34': 'Puducherry',
+  '35': 'Andaman and Nicobar Islands', '36': 'Telangana', '37': 'Andhra Pradesh', '38': 'Ladakh', '97': 'Other Territory', '96': 'Outside India',
+};
+
+/** A credit note's GST view also carries the guest's details from its bill. */
+export type CreditNoteGst = GstView & { buyer: GstBuyer };
+
+export const EINVOICE_CANCEL_REASONS: Record<'1' | '2' | '3' | '4', string> = {
+  '1': 'Duplicate', '2': 'Data entry mistake', '3': 'Order cancelled', '4': 'Other',
+};
 
 export interface BillingBooking {
   id: string;
@@ -202,6 +291,12 @@ export class BillingApi {
   cancelCredit = (id: string, reason: string) =>
     firstValueFrom(this.http.post<{ creditNote: CreditNote; bill: Bill }>(`/api/billing/credit-notes/${id}/cancel`, { reason }));
   creditNote = (id: string) => firstValueFrom(this.http.get<CreditNote>(`/api/billing/credit-notes/${id}`));
+  setBuyer = (billId: string, buyer: Partial<GstBuyer>) => firstValueFrom(this.http.put<Bill>(`/api/billing/bills/${billId}/gst-buyer`, buyer));
+  eInvoice = (billId: string) => firstValueFrom(this.http.post<Bill>(`/api/billing/bills/${billId}/einvoice`, {}));
+  cancelEInvoice = (billId: string, reasonCode: string, remark: string) =>
+    firstValueFrom(this.http.post<Bill>(`/api/billing/bills/${billId}/einvoice/cancel`, { reasonCode, remark }));
+  creditNoteGst = (id: string) => firstValueFrom(this.http.get<{ gst: CreditNoteGst | null }>(`/api/billing/credit-notes/${id}/gst`));
+  creditNoteEInvoice = (id: string) => firstValueFrom(this.http.post<{ gst: CreditNoteGst | null }>(`/api/billing/credit-notes/${id}/einvoice`, {}));
 }
 
 /** 12,345.60 style (12,345.600 for a dinar), without a currency sign: the property's currency is shown once. */

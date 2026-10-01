@@ -29,6 +29,38 @@ export interface PrintSetup {
   paperSize: 'A4' | 'Letter';
 }
 
+export type GstRole = 'gst' | 'cgst' | 'sgst' | 'igst' | 'cess';
+export const GST_ROLE_LABELS: Record<GstRole, string> = {
+  gst: 'GST (split into CGST + SGST)', cgst: 'CGST', sgst: 'SGST', igst: 'IGST', cess: 'Cess',
+};
+
+export interface SacCodes {
+  package: string;
+  alacarte: string;
+  services: string;
+  hallHire: string;
+  liquorLicence: string;
+}
+export const SAC_LABELS: Record<keyof SacCodes, string> = {
+  package: 'Packages', alacarte: 'A la carte', services: 'Services', hallHire: 'Hall hire', liquorLicence: 'Liquor licence',
+};
+
+/** India GST invoice format and e-invoicing (billing/gst.ts on the server). */
+export interface GstSetup {
+  enabled: boolean;
+  gstin: string;
+  legalName: string;
+  tradeName: string;
+  address1: string;
+  address2: string;
+  location: string;
+  pincode: string;
+  stateCode: string;
+  sac: SacCodes;
+  taxRoles: Record<string, GstRole>;
+  eInvoice: boolean;
+}
+
 export interface BillingSetup {
   propertyId: string;
   fyStartMonth: number;
@@ -39,12 +71,17 @@ export interface BillingSetup {
   next: Record<SeriesDocument, { seq: number; number: string }>;
   currency: string;
   decimals: number;
+  gst: GstSetup;
+  gstStates: Record<string, string>;
+  /** The property's taxes, for the GST roles. */
+  taxes: { id: string; name: string; type: string; rate: number }[];
 }
 
 export interface BillingSetupInput {
   fyStartMonth: number;
   series: Record<SeriesDocument, Series>;
   print: PrintSetup;
+  gst: Omit<GstSetup, 'stateCode' | 'taxRoles'> & { taxRoles: Record<string, GstRole | ''> };
   nextNumbers?: Partial<Record<SeriesDocument, number>>;
 }
 
