@@ -1,0 +1,122 @@
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Type } from 'class-transformer';
+import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { AuthGuard, RequirePermission } from '../auth/auth.guard.js';
+import { CurrentAuth, CurrentTenant, type AuthContext } from '../common/request-context.js';
+import type { TenantDocument } from '../tenants/tenant.schema.js';
+import type { LineSource } from './bill-engine.js';
+import { BILL_STATUSES, PAYMENT_MODES, type PaymentMode } from './bill.schema.js';
+import { BillingService } from './billing.service.js';
+
+const SOURCES: LineSource[] = ['package', 'extra', 'running', 'hallHire', 'liquorLicence'];
+
+class DiscountDto {
+  @IsIn(['percent', 'amount']) type: 'percent' | 'amount';
+  @IsNumber() value: number;
+  @IsString() @MaxLength(200) reason: string;
+}
+
+class LineDto {
+  @IsOptional() @IsString() id?: string;
+  @IsIn(SOURCES) source: LineSource;
+  @IsOptional() @IsString() @MaxLength(120) label?: string;
+  @IsOptional() @IsIn(['alacarte', 'services']) aType?: 'alacarte' | 'services';
+  @IsOptional() @IsIn(['menuItem', 'modifier']) kind?: string;
+  @IsOptional() @IsString() itemId?: string;
+  @IsOptional() @IsString() hallId?: string;
+  @IsOptional() actualPax?: number | null;
+  @IsOptional() @IsNumber() qty?: number;
+  @IsOptional() @IsNumber() rate?: number;
+  @IsOptional() @IsBoolean() taxInclusive?: boolean;
+  @IsOptional() @IsArray() @IsString({ each: true }) taxIds?: string[];
+  @IsOptional() @ValidateNested() @Type(() => DiscountDto) discount?: DiscountDto | null;
+  @IsOptional() @IsString() @MaxLength(200) remark?: string;
+}
+
+class DraftDto {
+  @IsArray() @ValidateNested({ each: true }) @Type(() => LineDto) lines: LineDto[];
+  @IsOptional() @ValidateNested() @Type(() => DiscountDto) billDiscount?: DiscountDto | null;
+}
+
+class PaymentDto {
+  @IsOptional() @IsIn(['payment', 'refund']) kind?: 'payment' | 'refund';
+  @IsNumber() amount: number;
+  @IsIn(PAYMENT_MODES) mode: PaymentMode;
+  @IsOptional() @IsString() date?: string;
+  @IsOptional() @IsString() @MaxLength(100) reference?: string;
+}
+
+class VoidDto {
+  @IsString() @MaxLength(300) reason: string;
+}
+
+@Controller('billing')
+@UseGuards(AuthGuard)
+export class BillingController {
+  constructor(private readonly billing: BillingService) {}
+
+  @Get('bills')
+  @RequirePermission('billing.manage')
+  list(
+    @CurrentTenant() tenant: TenantDocument,
+    @Query('propertyId') propertyId?: string,
+    @Query('status') status?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const s = status && (BILL_STATUSES as readonly string[]).includes(status) ? status : undefined;
+    return this.billing.list(tenant._id, { propertyId, status: s, from, to });
+  }
+
+  @Get('bills/:id')
+  @RequirePermission('billing.manage')
+  get(@CurrentTenant() tenant: TenantDocument, @Param('id') id: string) {
+    return this.billing.getView(tenant._id, id);
+  }
+
+  @Get('reservations/:id')
+  @RequirePermission('billing.manage')
+  forReservation(@CurrentTenant() tenant: TenantDocument, @Param('id') id: string) {
+    return this.billing.forReservation(tenant._id, id);
+  }
+
+  @Post('reservations/:id/draft')
+  @RequirePermission('billing.manage')
+  draft(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.billing.createDraft(tenant._id, auth.user.id as string, id);
+  }
+
+  @Put('bills/:id')
+  @RequirePermission('billing.manage')
+  save(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() body: DraftDto) {
+    return this.billing.saveDraft(tenant._id, auth.user.id as string, id, body);
+  }
+
+  @Post('bills/:id/refresh')
+  @HttpCode(200)
+  @RequirePermission('billing.manage')
+  refresh(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.billing.refreshDraft(tenant._id, auth.user.id as string, id);
+  }
+
+  @Post('bills/:id/finalise')
+  @HttpCode(200)
+  @RequirePermission('billing.approve')
+  finalise(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.billing.finalise(tenant._id, auth.user.id as string, id);
+  }
+
+  @Post('bills/:id/payments')
+  @HttpCode(200)
+  @RequirePermission('billing.manage')
+  pay(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() body: PaymentDto) {
+    return this.billing.addPayment(tenant._id, auth.user.id as string, id, body);
+  }
+
+  @Post('bills/:id/void')
+  @HttpCode(200)
+  @RequirePermission('billing.approve')
+  void(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() body: VoidDto) {
+    return this.billing.void(tenant._id, auth.user.id as string, id, body.reason);
+  }
+}

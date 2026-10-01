@@ -17,6 +17,7 @@ import { MastersStore } from './master/masters-store';
         <nav>
           <a routerLink="/operations" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Reservation Diary</a>
           <a routerLink="/operations/reports" routerLinkActive="active">Reports</a>
+          <a routerLink="/operations/billing" routerLinkActive="active">Bills</a>
         </nav>
       }
       <span class="spacer"></span>

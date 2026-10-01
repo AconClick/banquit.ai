@@ -26,6 +26,10 @@ export const routes: Routes = [
       { path: 'bookings/:id', component: BookingPage, title: 'Booking · Banquet.ai' },
       { path: 'bookings/:id/sheet', component: FunctionSheet, title: 'Function sheet · Banquet.ai' },
       { path: 'reports', component: Reports, title: 'Reports · Banquet.ai' },
+      // Billing loads on first use, keeping the first page small.
+      { path: 'billing', loadComponent: () => import('./operations/billing/bills-page').then((m) => m.BillsPage), title: 'Bills · Banquet.ai' },
+      { path: 'billing/:id', loadComponent: () => import('./operations/billing/bill-page').then((m) => m.BillPage), title: 'Bill · Banquet.ai' },
+      { path: 'billing/:id/print', loadComponent: () => import('./operations/billing/bill-print').then((m) => m.BillPrint), title: 'Print bill · Banquet.ai' },
     ],
   },
   {
