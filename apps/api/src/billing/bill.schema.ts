@@ -154,6 +154,10 @@ export class Bill {
   @Prop({ type: String, required: true })
   status: BillStatus;
 
+  /** The booking id while the bill is not void; a unique index keeps one open bill per booking. */
+  @Prop()
+  openFor?: string;
+
   /** From the bill series when finalised, e.g. B/2026-27/000001. */
   @Prop()
   number?: string;
@@ -194,4 +198,5 @@ export class Bill {
 export type BillDocument = HydratedDocument<Bill>;
 export const BillSchema = SchemaFactory.createForClass(Bill);
 BillSchema.index({ tenantId: 1, reservationId: 1 });
+BillSchema.index({ tenantId: 1, openFor: 1 }, { unique: true, partialFilterExpression: { openFor: { $exists: true } } });
 BillSchema.index({ tenantId: 1, propertyId: 1, status: 1, functionDate: 1 });
