@@ -1,10 +1,11 @@
 import {
-  Body, CanActivate, Controller, Req, createParamDecorator, ExecutionContext, ForbiddenException, Get, HttpCode, Injectable, Param, Post, Put, Query, UnauthorizedException, UseGuards,
+  Body, CanActivate, Controller, Req, createParamDecorator, ExecutionContext, ForbiddenException, Get, HttpCode, Injectable, Param, Post, Put, Query, UnauthorizedException, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { Request } from 'express';
 import { AuthGuard, NotForSupport, RequirePermission, SupportReadOk } from '../auth/auth.guard.js';
 import { ActivityDto, ChangePasswordDto, OtpDto } from '../auth/dto.js';
+import { SessionCookieInterceptor } from '../auth/session-cookie.js';
 import { CurrentAuth, CurrentTenant, type AppRequest, type AuthContext } from '../common/request-context.js';
 import { PlatformAdminGuard } from '../platform/platform-admin.guard.js';
 import type { TenantDocument } from '../tenants/tenant.schema.js';
@@ -154,6 +155,7 @@ export class SupportSessionController {
   @Post('activity')
   @HttpCode(200)
   @SupportReadOk()
+  @UseInterceptors(SessionCookieInterceptor)
   activity(@CurrentAuth() auth: AuthContext, @Body() body: ActivityDto) {
     return this.support.sessionToken(this.session(auth), body.activity);
   }

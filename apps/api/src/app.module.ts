@@ -1,4 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { APP_FILTER } from '@nestjs/core';
 import { JwtModule } from '@nestjs/jwt';
 import { MongooseModule } from '@nestjs/mongoose';
 import { authRules, config } from './config.js';
@@ -9,6 +10,9 @@ import { Bill, BillSchema } from './billing/bill.schema.js';
 import { BillingController } from './billing/billing.controller.js';
 import { BillingService } from './billing/billing.service.js';
 import { BOOKING_SOURCE, ReservationBookingSource } from './billing/booking-source.js';
+import { ErrorReporter, LogErrorReporter, ReportingExceptionFilter, RequestLogMiddleware } from './common/observability.js';
+import { RateLimiter, RateLimitMiddleware } from './common/rate-limit.js';
+import { HealthController } from './health/health.controller.js';
 import { TenantMiddleware } from './common/request-context.js';
 import { MasterRecord, MasterRecordSchema } from './masters/master-record.schema.js';
 import { MastersController } from './masters/masters.controller.js';
@@ -58,13 +62,15 @@ import { UsersService } from './users/users.service.js';
     JwtModule.register({ secret: config.jwtSecret, signOptions: { expiresIn: `${authRules.maxSessionHours}h` } }),
     NotificationsModule,
   ],
-  controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController,
+  controllers: [HealthController, TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController,
     SupportConsoleController, SupportSessionController, SupportAccessController, SupportApprovalController, SupportStaffController],
   providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, AuthGuard,
-    BillingService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
+    RateLimiter, { provide: ErrorReporter, useClass: LogErrorReporter }, { provide: APP_FILTER, useClass: ReportingExceptionFilter }, BillingService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TenantMiddleware).forRoutes('*path');
+    consumer.apply(RequestLogMiddleware).forRoutes('*path');
+    // Health checks come from the load balancer by IP address: no tenant, no limits.
+    consumer.apply(RateLimitMiddleware, TenantMiddleware).exclude('health', 'health/ready').forRoutes('*path');
   }
 }

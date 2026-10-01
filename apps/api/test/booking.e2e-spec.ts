@@ -1,14 +1,16 @@
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Types, type Connection } from 'mongoose';
 import { ReservationsService } from '../src/reservations/reservations.service.js';
-import { startApp } from './helpers.js';
+import { todayIn } from '../src/reservations/local-time.js';
+import { startApp, tokenOf } from './helpers.js';
 
 const addDays = (date: string, days: number) => {
   const d = new Date(`${date}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 };
-const today = () => new Date().toISOString().slice(0, 10);
+/** The hotel's date, not the UTC date: the test properties use the default time zone (Asia/Kolkata). */
+const today = () => todayIn('Asia/Kolkata');
 
 describe('Property prices, booking menus, advances and cancellation', () => {
   let t: Awaited<ReturnType<typeof startApp>>;
@@ -21,10 +23,10 @@ describe('Property prices, booking menus, advances and cancellation', () => {
   async function use(activity: 'master' | 'operations') {
     if (panel === activity) return;
     const res = await t.http().post('/api/auth/activity').set('Host', host).auth(token, auth).send({ activity }).expect(200);
-    if (activity === 'operations') token = res.body.token;
+    if (activity === 'operations') token = tokenOf(res);
     else {
       const sms = [...t.outbox].reverse().find((msg) => /Master access/.test(msg.body))!;
-      token = (await t.http().post('/api/auth/otp/verify').set('Host', host).auth(token, auth).send({ code: t.otpIn(sms.body) }).expect(200)).body.token;
+      token = tokenOf(await t.http().post('/api/auth/otp/verify').set('Host', host).auth(token, auth).send({ code: t.otpIn(sms.body) }).expect(200));
     }
     panel = activity;
   }

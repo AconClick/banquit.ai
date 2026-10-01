@@ -13,7 +13,7 @@ export PROBE_OUT=/tmp            # where seed.json and fuzz results are written
 
 npm run stress:fuzz              # 20,000 random bills through the bill maths
 npm run stress:seed              # 3 sized tenants + 40 small ones, ~225,000 bookings (about a minute)
-PORT=3100 node dist/main.js &    # the API on the seeded database
+RATE_LIMITS=false PORT=3100 node dist/main.js &   # the API on the seeded database (per-IP limits off: all load comes from one IP)
 SECONDS=20 npm run stress:load -- $PROBE_OUT/seed.json http://127.0.0.1:3100 single mixed chain > results.json
 ```
 
