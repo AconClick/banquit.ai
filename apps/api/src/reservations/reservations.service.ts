@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { MastersService } from '../masters/masters.service.js';
+import { PricingService } from '../pricing/pricing.service.js';
+import { BookingDetailsService, type MenuInput, type ReceiptInput } from './booking-details.service.js';
 import type { MasterRecordDocument } from '../masters/master-record.schema.js';
 import { addDays, isDate, isLocalDateTime, toMinutes } from './local-time.js';
 import {
@@ -46,7 +48,8 @@ const NEXT: Partial<Record<ReservationStatus, ReservationStatus[]>> = {
   enquiry: ['provisional', 'waitlisted', 'confirmed', 'lost', 'cancelled'],
   provisional: ['confirmed', 'lost', 'cancelled'],
   waitlisted: ['provisional', 'confirmed', 'lost', 'cancelled'],
-  confirmed: ['cancelled'],
+  confirmed: ['inFunction', 'cancelled'],
+  inFunction: ['completed'],
 };
 const CREATE_STATUSES: ReservationStatus[] = ['enquiry', 'provisional', 'waitlisted', 'confirmed'];
 const EDITABLE: ReservationStatus[] = ['enquiry', 'provisional', 'waitlisted', 'confirmed'];
@@ -58,8 +61,20 @@ export const STATUS_LABELS: Record<ReservationStatus, string> = {
   inFunction: 'In Function', completed: 'Function Completed', billed: 'Billed', cancelled: 'Cancelled', lost: 'Lost',
 };
 
-const PROVISIONAL_OPTION_DAYS = 7;
-const OPTION_BEFORE_FUNCTION_DAYS = 3;
+/** Packages, extras and advances can be changed until the function is over. */
+const DETAILS_EDITABLE: ReservationStatus[] = ['enquiry', 'provisional', 'waitlisted', 'confirmed', 'inFunction'];
+
+export interface StatusOptions {
+  reasonId?: string;
+  optionDate?: string;
+  note?: string;
+  /** Cancellation: a lower charge than the slab gives (a waiver); needs a note. */
+  cancellationCharge?: number;
+  /** The user may confirm without the full advance, giving a note. */
+  canSkipAdvance?: boolean;
+  /** Needed to complete a function (reservation-stages.md 3.7). */
+  actualPax?: number;
+}
 
 export const reservationView = (r: ReservationDocument, warnings: string[] = []) => ({
   id: r.id as string,
@@ -93,6 +108,8 @@ export class ReservationsService {
     @InjectModel(HallBlock.name) private readonly blocks: Model<HallBlock>,
     @InjectModel(Counter.name) private readonly counters: Model<Counter>,
     private readonly masters: MastersService,
+    private readonly pricing: PricingService,
+    private readonly booking: BookingDetailsService,
   ) {}
 
   /** Everything the diary shows for one property and date range: halls, bookings and blocks. */
@@ -159,27 +176,122 @@ export class ReservationsService {
     userId: string,
     id: string,
     to: ReservationStatus,
-    opts: { reasonId?: string; optionDate?: string; note?: string },
+    opts: StatusOptions,
   ) {
     const r = await this.get(tenantId, id);
     if (!NEXT[r.status]?.includes(to)) {
       throw new BadRequestException(`A ${STATUS_LABELS[r.status]} booking cannot become ${STATUS_LABELS[to]}.`);
     }
-    if (to === 'cancelled') await this.activeRecord(tenantId, 'cancellationReason', opts.reasonId, 'Cancellation reason');
+    const note = opts.note?.trim() || undefined;
+    if (to === 'cancelled') {
+      await this.activeRecord(tenantId, 'cancellationReason', opts.reasonId, 'Cancellation reason');
+      await this.chargeCancellation(tenantId, r, opts.cancellationCharge, note);
+    }
+    if (to === 'confirmed') {
+      const { proforma, settings } = await this.booking.quote(tenantId, r);
+      const advance = this.booking.advance(r, proforma.total, settings);
+      if (advance.shortBy > 0) {
+        if (!opts.canSkipAdvance) {
+          throw new BadRequestException(`Confirming needs an advance of ${advance.required.toFixed(2)} (${advance.percent}% of the proforma); ${advance.paid.toFixed(2)} is paid.`);
+        }
+        if (!note) throw new BadRequestException('Give a note to confirm without the full advance.');
+      }
+    }
+    if (to === 'inFunction') {
+      // Started by the banquet captain on the day; a day's leeway covers time zones and early set-up.
+      const first = r.slots.map((s) => s.start.slice(0, 10)).sort()[0];
+      if (addDays(new Date().toISOString().slice(0, 10), 1) < first) {
+        throw new BadRequestException(`The function can be started from its date (${first}).`);
+      }
+    }
+    if (to === 'completed') {
+      const actual = opts.actualPax;
+      if (typeof actual !== 'number' || !Number.isInteger(actual) || actual < 0) {
+        throw new BadRequestException('Enter the actual pax (a whole number) to complete the function.');
+      }
+      r.actualPax = actual;
+    }
     const warnings: string[] = [];
-    if (HOLDING_STATUSES.includes(to)) {
+    if (HOLDING_STATUSES.includes(to) && r.status !== 'confirmed') {
       await this.checkAvailability(tenantId, r.slots, r._id);
     }
     if (to === 'provisional') {
-      r.optionDate = this.optionDate(opts.optionDate, r.slots);
+      r.optionDate = await this.optionDate(tenantId, r.propertyId, opts.optionDate, r.slots);
     } else if (to !== 'cancelled') {
       r.set('optionDate', undefined);
     }
     const from = r.status;
     r.status = to;
-    r.history.push({ from, to, at: new Date(), byUserId: userId, reasonId: opts.reasonId, note: opts.note });
+    r.history.push({ from, to, at: new Date(), byUserId: userId, reasonId: opts.reasonId, note });
     await r.save();
     return reservationView(r, warnings);
+  }
+
+  /**
+   * Called by billing when the final bill is fully settled: the only way a booking becomes Billed,
+   * so the reservation status stays owned by this module.
+   */
+  async markBilled(tenantId: Types.ObjectId, userId: string, id: string, billNumber: string) {
+    const r = await this.get(tenantId, id);
+    if (r.status === 'billed') return reservationView(r);
+    if (r.status !== 'completed') throw new BadRequestException(`A ${STATUS_LABELS[r.status]} booking cannot be marked billed.`);
+    r.status = 'billed';
+    r.history.push({ from: 'completed', to: 'billed', at: new Date(), byUserId: userId, note: `Bill ${billNumber} settled` });
+    await r.save();
+    return reservationView(r);
+  }
+
+  async details(tenantId: Types.ObjectId, id: string) {
+    const r = await this.get(tenantId, id);
+    return { ...reservationView(r), ...(await this.booking.details(tenantId, r)) };
+  }
+
+  async menuOptions(tenantId: Types.ObjectId, id: string) {
+    const r = await this.get(tenantId, id);
+    return this.booking.menuOptions(tenantId, r.propertyId);
+  }
+
+  async saveMenu(tenantId: Types.ObjectId, userId: string, id: string, input: MenuInput & { amendmentReasonId?: string }) {
+    const r = await this.get(tenantId, id);
+    if (!DETAILS_EDITABLE.includes(r.status)) throw new BadRequestException(`The menu of a ${STATUS_LABELS[r.status]} booking cannot be changed.`);
+    const amend = [...AMEND_NEEDS_REASON, 'inFunction'].includes(r.status);
+    if (amend) await this.activeRecord(tenantId, 'amendmentReason', input.amendmentReasonId, 'Amendment reason');
+    await this.booking.applyMenu(tenantId, r, input);
+    if (amend) {
+      r.history.push({ from: r.status, to: r.status, at: new Date(), byUserId: userId, reasonId: input.amendmentReasonId, note: 'Menu changed' });
+    }
+    await r.save();
+    return this.details(tenantId, id);
+  }
+
+  async addReceipt(tenantId: Types.ObjectId, userId: string, id: string, input: ReceiptInput) {
+    const r = await this.get(tenantId, id);
+    if (!DETAILS_EDITABLE.includes(r.status)) throw new BadRequestException(`A ${STATUS_LABELS[r.status]} booking cannot take an advance.`);
+    await this.booking.addReceipt(tenantId, userId, r, input);
+    await r.save();
+    return this.details(tenantId, id);
+  }
+
+  /** Cancellation charge from the property's slabs, taken from advances first (open-questions.md, section 2). */
+  private async chargeCancellation(tenantId: Types.ObjectId, r: ReservationDocument, override: number | undefined, note: string | undefined) {
+    const { proforma, settings } = await this.booking.quote(tenantId, r);
+    const preview = this.booking.cancellationPreview(r, proforma.total, settings);
+    if (!preview) {
+      if (override !== undefined && override > 0) throw new BadRequestException('This booking carries no cancellation charge.');
+      if (r.receipts.length) {
+        const paid = this.booking.paid(r);
+        r.cancellation = { daysBefore: 0, percent: 0, computed: 0, ...this.booking.split(0, paid) };
+      }
+      return;
+    }
+    let charge = preview.computed;
+    if (override !== undefined && override !== null) {
+      if (typeof override !== 'number' || !Number.isFinite(override) || override < 0) throw new BadRequestException('Cancellation charge must be 0 or more.');
+      if (override > preview.computed) throw new BadRequestException(`The charge cannot be more than the slab amount (${preview.computed.toFixed(2)}).`);
+      if (override < preview.computed && !note) throw new BadRequestException('Give a note when reducing the cancellation charge.');
+      charge = Math.round(override * 100) / 100;
+    }
+    r.cancellation = { daysBefore: preview.daysBefore, percent: preview.percent, computed: preview.computed, ...this.booking.split(charge, this.booking.paid(r)) };
   }
 
   async createBlock(tenantId: Types.ObjectId, userId: string, input: BlockInput) {
@@ -246,7 +358,9 @@ export class ReservationsService {
 
     if (HOLDING_STATUSES.includes(input.status)) await this.checkAvailability(tenantId, slots, existing?._id ?? null);
 
-    const optionDate = input.status === 'provisional' ? this.optionDate(input.optionDate ?? existing?.optionDate, slots) : undefined;
+    const optionDate = input.status === 'provisional'
+      ? await this.optionDate(tenantId, property.id as string, input.optionDate ?? existing?.optionDate, slots)
+      : undefined;
     return {
       warnings,
       clean: {
@@ -299,8 +413,8 @@ export class ReservationsService {
     }
   }
 
-  /** Given or default option date: 7 days from today, but at least 3 days before the function. */
-  private optionDate(given: string | undefined, slots: HallSlot[]) {
+  /** Given or default option date: by default 7 days from today, but at least 3 days before the function. */
+  private async optionDate(tenantId: Types.ObjectId, propertyId: string, given: string | undefined, slots: HallSlot[]) {
     const today = new Date().toISOString().slice(0, 10);
     const firstDay = slots.map((s) => s.start.slice(0, 10)).sort()[0];
     if (given) {
@@ -309,8 +423,9 @@ export class ReservationsService {
       if (given > firstDay) throw new BadRequestException('Option date cannot be after the function date.');
       return given;
     }
-    const byRule = addDays(firstDay, -OPTION_BEFORE_FUNCTION_DAYS);
-    const def = addDays(today, PROVISIONAL_OPTION_DAYS);
+    const settings = await this.pricing.settings(tenantId, propertyId);
+    const byRule = addDays(firstDay, -settings.optionBeforeFunctionDays);
+    const def = addDays(today, settings.optionDays);
     const pick = def < byRule ? def : byRule;
     return pick < today ? today : pick;
   }

@@ -29,3 +29,6 @@ button.danger { color: var(--danger); border-color: var(--danger); }
 .s-enquiry { background: #d6c9ff; }
 .s-cancelled { background: #c9c27a; }
 .s-lost { background: #ddd; }
+.open { display: block; margin: 0 0 0.75rem; color: var(--primary); text-decoration: none; font-weight: 600; font-size: 0.9rem; }
+.figures { font-size: 0.85rem; margin: 0 0 0.75rem; }
+.warn { color: var(--warn); }

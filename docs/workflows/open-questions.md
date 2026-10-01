@@ -1,5 +1,7 @@
 # Open Questions and Proposed Defaults
 
+> **Status (2026-10-01):** Awin Pavan accepted the proposed defaults below for advances, cancellation and tax-inclusive packages. They are built as **Property Settings** (one set per property, changeable in Master) and **Rate & Tax Mapping**. The questions stay open for clients who need a different policy.
+
 The original requirements document does not cover the topics below. Each section gives a **proposed default** so development can start, and the **questions** that need an answer from the business. Every number here should be a per-property setting, not hard-coded.
 
 ## 1. Advances and deposits

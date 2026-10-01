@@ -44,6 +44,112 @@ export class StatusChange {
   note?: string;
 }
 
+/** A package on the booking, with the menu items the guest chose. Rate is fixed when added. */
+@Schema({ _id: false })
+export class PackageLine {
+  @Prop({ required: true })
+  packageId: string;
+
+  @Prop({ required: true })
+  name: string;
+
+  @Prop({ required: true })
+  pax: number;
+
+  @Prop({ required: true })
+  rate: number;
+
+  @Prop({ required: true })
+  taxInclusive: boolean;
+
+  @Prop({ type: [String], default: [] })
+  choices: string[];
+}
+
+/** An ala carte item, service or modifier booked in advance. Rate is fixed when added. */
+@Schema({ _id: false })
+export class ExtraLine {
+  @Prop({ type: String, required: true })
+  kind: 'menuItem' | 'modifier';
+
+  @Prop({ required: true })
+  itemId: string;
+
+  @Prop({ required: true })
+  name: string;
+
+  @Prop({ type: String, required: true })
+  aType: 'alacarte' | 'services';
+
+  @Prop({ required: true })
+  qty: number;
+
+  @Prop({ required: true })
+  rate: number;
+
+  @Prop({ required: true })
+  taxInclusive: boolean;
+
+  @Prop({ default: '' })
+  note: string;
+}
+
+export const SETTLEMENT_MODES = ['cash', 'card', 'upi', 'bankTransfer', 'cheque', 'other'] as const;
+export type SettlementMode = (typeof SETTLEMENT_MODES)[number];
+
+/** Money received against the booking before the bill (advances). */
+@Schema({ _id: false })
+export class Receipt {
+  @Prop({ required: true })
+  number: string;
+
+  @Prop({ required: true })
+  date: string;
+
+  @Prop({ required: true })
+  amount: number;
+
+  @Prop({ type: String, required: true })
+  mode: SettlementMode;
+
+  @Prop({ default: '' })
+  reference: string;
+
+  @Prop({ required: true })
+  byUserId: string;
+
+  @Prop({ required: true })
+  at: Date;
+}
+
+/** Worked out when the booking is cancelled, from the property's cancellation slabs. */
+@Schema({ _id: false })
+export class CancellationCharge {
+  @Prop({ required: true })
+  daysBefore: number;
+
+  @Prop({ required: true })
+  percent: number;
+
+  /** Charge from the slab. */
+  @Prop({ required: true })
+  computed: number;
+
+  /** Charge actually applied (lower when a manager waived part of it). */
+  @Prop({ required: true })
+  charge: number;
+
+  /** Taken from advances already paid. */
+  @Prop({ required: true })
+  retained: number;
+
+  @Prop({ required: true })
+  refundDue: number;
+
+  @Prop({ required: true })
+  balanceDue: number;
+}
+
 @Schema({ timestamps: true })
 export class Reservation {
   @Prop({ type: Types.ObjectId, required: true })
@@ -96,6 +202,18 @@ export class Reservation {
 
   @Prop({ default: '', trim: true })
   notes: string;
+
+  @Prop({ type: [PackageLine], default: [] })
+  packages: PackageLine[];
+
+  @Prop({ type: [ExtraLine], default: [] })
+  extras: ExtraLine[];
+
+  @Prop({ type: [Receipt], default: [] })
+  receipts: Receipt[];
+
+  @Prop({ type: CancellationCharge })
+  cancellation?: CancellationCharge;
 
   @Prop({ type: [StatusChange], default: [] })
   history: StatusChange[];

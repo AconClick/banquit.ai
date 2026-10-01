@@ -1,0 +1,214 @@
+@if (d(); as r) {
+  <div class="page-head no-print">
+    <div>
+      <a routerLink="/operations" class="back">‹ Reservation Diary</a>
+      <h1>{{ r.number }} <span class="pill" [class]="'pill s-' + r.status">{{ labels[r.status] }}</span></h1>
+    </div>
+    <div class="head-actions">
+      <a class="button" [routerLink]="['/operations/bookings', r.id, 'sheet']">Function sheet</a>
+      @if (['inFunction', 'completed', 'billed'].includes(r.status)) {
+        <a class="button" [routerLink]="['/operations/billing', r.id]">Bill</a>
+      }
+    </div>
+  </div>
+
+  @if (error(); as e) { <p class="alert error no-print" role="alert">{{ e }}</p> }
+  @if (notice(); as n) { <p class="alert ok no-print" role="status">{{ n }}</p> }
+
+  <section class="card summary">
+    <dl>
+      <dt>Company / guest</dt><dd>{{ r.hostName }}@if (r.contactName) { ({{ r.contactName }}) }</dd>
+      <dt>Phone</dt><dd>{{ r.phone }}@if (r.email) { · {{ r.email }} }</dd>
+      <dt>Function</dt><dd>{{ name('functionType', r.functionTypeId) }}@if (r.seatingStyleId) { · {{ name('seatingStyle', r.seatingStyleId) }} }</dd>
+      @for (s of r.slots; track s.start) {
+        <dt>Hall</dt><dd>{{ name('hall', s.hallId) }}, {{ s.start.replace('T', ' ') }} to {{ s.end.slice(11) }}</dd>
+      }
+      <dt>Pax</dt><dd>{{ r.guaranteedPax }} guaranteed, {{ r.expectedMaxPax }} expected max</dd>
+      <dt>Menu cut-off</dt><dd>{{ r.guaranteeCutoff.replace('T', ' ') }}</dd>
+    </dl>
+  </section>
+
+  <div class="columns">
+    <section class="card">
+      <div class="card-head">
+        <h2>Menu and extras</h2>
+        @if (editable() && !editingMenu()) { <button (click)="startMenu()">Change menu</button> }
+      </div>
+      @for (w of r.menuWarnings; track w) { <p class="alert warn">{{ w }}</p> }
+
+      @if (!editingMenu()) {
+        @for (p of r.packages; track p.packageId) {
+          <div class="line">
+            <div class="line-head"><strong>{{ p.name }}</strong><span>{{ p.pax }} pax × {{ money(p.rate) }}@if (p.taxInclusive) { <span class="muted"> incl. tax</span> }</span></div>
+            @if (p.choices.length) { <p class="choices">{{ chosenNames(p) }}</p> }
+          </div>
+        }
+        @for (e of r.extras; track e.kind + e.itemId) {
+          <div class="line">
+            <div class="line-head"><span>{{ e.name }} <span class="muted">({{ aTypes[e.aType] }})</span></span><span>{{ e.qty }} × {{ money(e.rate) }}</span></div>
+            @if (e.note) { <p class="choices">{{ e.note }}</p> }
+          </div>
+        }
+        @if (!r.packages.length && !r.extras.length) { <p class="muted">No package or extras yet.</p> }
+      } @else {
+        <form (ngSubmit)="saveMenu()">
+          @for (p of packages; track p.packageId; let i = $index) {
+            @let o = option(p.packageId);
+            <fieldset class="pkg">
+              <legend>{{ o?.name ?? 'Package' }}</legend>
+              <div class="row">
+                <label>Pax <input type="number" min="1" step="1" [name]="'pax' + i" [(ngModel)]="p.pax" /></label>
+                <button type="button" class="link danger" (click)="packages.splice(i, 1)">Remove package</button>
+              </div>
+              @for (g of o?.groups ?? []; track g.subGroupId) {
+                <div class="group">
+                  <div class="group-head">
+                    <strong>{{ g.name }}</strong>
+                    <span class="count" [class.short]="picked(p, g.items) < g.min" [class.over]="picked(p, g.items) > g.max">
+                      {{ picked(p, g.items) }} chosen, pick {{ g.min === g.max ? g.max : g.min + ' to ' + g.max }}
+                    </span>
+                  </div>
+                  @for (item of g.items; track item.id) {
+                    <label class="check">
+                      <input type="checkbox" [checked]="p.choices.includes(item.id)" (change)="toggleChoice(p, item.id)"
+                        [disabled]="!p.choices.includes(item.id) && picked(p, g.items) >= g.max" /> {{ item.name }}
+                    </label>
+                  }
+                </div>
+              }
+            </fieldset>
+          }
+          <div class="add-row">
+            <select name="addPackage" [(ngModel)]="addPackageId" aria-label="Package to add">
+              <option value="">Add a package…</option>
+              @for (o of options()?.packages ?? []; track o.id) {
+                <option [value]="o.id">{{ o.name }} · {{ money(o.rate) }}{{ o.taxInclusive ? ' incl. tax' : '' }}</option>
+              }
+            </select>
+            <button type="button" (click)="addPackage()" [disabled]="!addPackageId">Add</button>
+          </div>
+
+          @if (extras.length) {
+            <table class="grid extras">
+              <thead><tr><th>Extra</th><th>Qty</th><th>Note</th><th></th></tr></thead>
+              <tbody>
+                @for (e of extras; track e.kind + e.itemId; let i = $index) {
+                  <tr>
+                    <td>{{ extraOption(e)?.name ?? 'Item' }}</td>
+                    <td><input type="number" min="0.01" step="any" class="qty" [name]="'qty' + i" [(ngModel)]="e.qty" [attr.aria-label]="'Quantity of ' + extraOption(e)?.name" /></td>
+                    <td><input [name]="'note' + i" maxlength="200" [(ngModel)]="e.note" [attr.aria-label]="'Note for ' + extraOption(e)?.name" /></td>
+                    <td><button type="button" class="link danger" (click)="extras.splice(i, 1)">Remove</button></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
+          <div class="add-row">
+            <select name="addExtra" [(ngModel)]="addExtraKey" aria-label="Extra to add">
+              <option value="">Add ala carte, service or modifier…</option>
+              @for (o of options()?.extras ?? []; track o.kind + o.id) {
+                <option [value]="o.kind + ':' + o.id">{{ o.name }} ({{ aTypes[o.aType] }}) · {{ money(o.rate) }}{{ o.unit ? ' / ' + o.unit : '' }}</option>
+              }
+            </select>
+            <button type="button" (click)="addExtra()" [disabled]="!addExtraKey">Add</button>
+          </div>
+
+          @if (needsAmendReason()) {
+            <label>Amendment reason
+              <select name="amend" [(ngModel)]="amendmentReasonId" required>
+                <option value="" disabled>Choose</option>
+                @for (a of lookups()['amendmentReason'] ?? []; track a.id) { @if (a.active) { <option [value]="a.id">{{ a['description'] }}</option> } }
+              </select>
+            </label>
+          }
+          <div class="actions">
+            <button type="button" (click)="editingMenu.set(false)">Cancel</button>
+            <button class="primary" [disabled]="busy()">Save menu</button>
+          </div>
+        </form>
+      }
+    </section>
+
+    <div class="side">
+      <section class="card">
+        <h2>Proforma estimate @if (currency()) { <span class="muted cur">{{ currency() }}</span> }</h2>
+        @if (r.proforma.lines.length) {
+          <table class="grid money">
+            <thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Before tax</th></tr></thead>
+            <tbody>
+              @for (l of r.proforma.lines; track $index) {
+                <tr><td>{{ l.label }}@if (l.taxInclusive) { <span class="muted small"> incl. tax</span> }</td><td class="num">{{ l.qty }}</td><td class="num">{{ money(l.rate) }}</td><td class="num">{{ money(l.taxable) }}</td></tr>
+              }
+              <tr class="sub"><td colspan="3">Taxable value</td><td class="num">{{ money(r.proforma.taxable) }}</td></tr>
+              @for (t of r.proforma.taxes; track t.id) {
+                <tr><td colspan="3">{{ t.name }}</td><td class="num">{{ money(t.amount) }}</td></tr>
+              }
+              @if (r.proforma.roundOff) { <tr><td colspan="3">Round off</td><td class="num">{{ money(r.proforma.roundOff) }}</td></tr> }
+              <tr class="total"><td colspan="3">Total</td><td class="num">{{ money(r.proforma.total) }}</td></tr>
+            </tbody>
+          </table>
+          <p class="muted small">On guaranteed pax at the agreed rates, with taxes valid on the function date. Not a tax invoice.</p>
+        } @else {
+          <p class="muted">Add a package or extras to see the estimate.</p>
+        }
+      </section>
+
+      <section class="card">
+        <h2>Advances</h2>
+        <dl class="advance">
+          <dt>Needed to confirm</dt><dd class="num">{{ money(r.advance.required) }} <span class="muted">({{ r.advance.percent }}%)</span></dd>
+          <dt>Paid</dt><dd class="num">{{ money(r.advance.paid) }}</dd>
+          @if (r.advance.shortBy > 0) { <dt>Still due</dt><dd class="num due">{{ money(r.advance.shortBy) }}</dd> }
+          @if (r.advance.secondInstalment; as s) {
+            <dt>Second instalment</dt><dd class="num">{{ money(s.amount) }} paid in total by {{ s.dueDate }}</dd>
+          }
+        </dl>
+        @if (r.receipts.length) {
+          <table class="grid money">
+            <thead><tr><th>Receipt</th><th>Date</th><th>Mode</th><th class="num">Amount</th></tr></thead>
+            <tbody>
+              @for (x of r.receipts; track x.number) {
+                <tr><td>{{ x.number }}</td><td>{{ x.date }}</td><td>{{ modeLabel(x.mode) }}@if (x.reference) { <span class="muted small"> {{ x.reference }}</span> }</td><td class="num">{{ money(x.amount) }}</td></tr>
+              }
+            </tbody>
+          </table>
+        }
+        @if (editable()) {
+          <form class="receipt" (ngSubmit)="addReceipt()">
+            <div class="row">
+              <label>Amount <input type="number" min="0.01" step="any" name="amount" [(ngModel)]="receipt.amount" required /></label>
+              <label>Mode
+                <select name="mode" [(ngModel)]="receipt.mode">
+                  @for (m of modes; track m[0]) { <option [value]="m[0]">{{ m[1] }}</option> }
+                </select>
+              </label>
+            </div>
+            <div class="row">
+              <label>Date <input type="date" name="date" [(ngModel)]="receipt.date" /></label>
+              <label>Reference (optional) <input name="reference" maxlength="100" [(ngModel)]="receipt.reference" placeholder="Card slip, UTR, cheque no." /></label>
+            </div>
+            <div class="actions"><button class="primary" [disabled]="busy() || !receipt.amount">Record advance</button></div>
+          </form>
+        }
+      </section>
+
+      @if (r.cancellation; as c) {
+        <section class="card">
+          <h2>Cancellation</h2>
+          <dl class="advance">
+            <dt>Cancelled</dt><dd>{{ c.daysBefore }} days before, {{ c.percent }}% slab</dd>
+            <dt>Slab charge</dt><dd class="num">{{ money(c.computed) }}</dd>
+            @if (c.charge !== c.computed) { <dt>Charge after waiver</dt><dd class="num">{{ money(c.charge) }}</dd> }
+            <dt>Kept from advance</dt><dd class="num">{{ money(c.retained) }}</dd>
+            <dt>Refund due</dt><dd class="num">{{ money(c.refundDue) }}</dd>
+            <dt>Still to collect</dt><dd class="num">{{ money(c.balanceDue) }}</dd>
+          </dl>
+        </section>
+      } @else if (r.cancellationPreview; as c) {
+        <p class="muted small">If cancelled today ({{ c.daysBefore }} days before): {{ c.percent }}% charge, {{ money(c.computed) }}.</p>
+      }
+    </div>
+  </div>
+} @else if (error(); as e) {
+  <p class="alert error" role="alert">{{ e }}</p>
+}

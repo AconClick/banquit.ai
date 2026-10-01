@@ -1,10 +1,10 @@
 import { Body, Controller, Get, HttpCode, Param, ParseIntPipe, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayMinSize, IsArray, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { AuthGuard, RequirePermission } from '../auth/auth.guard.js';
 import { CurrentAuth, CurrentTenant, type AuthContext } from '../common/request-context.js';
 import type { TenantDocument } from '../tenants/tenant.schema.js';
-import { RESERVATION_STATUSES, type ReservationStatus } from './reservation.schema.js';
+import { RESERVATION_STATUSES, SETTLEMENT_MODES, type ReservationStatus, type SettlementMode } from './reservation.schema.js';
 import { reservationView, ReservationsService } from './reservations.service.js';
 
 class SlotDto {
@@ -35,6 +35,34 @@ class StatusDto {
   @IsOptional() @IsString() reasonId?: string;
   @IsOptional() @IsString() optionDate?: string;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
+  @IsOptional() @IsNumber() cancellationCharge?: number;
+  @IsOptional() @IsInt() actualPax?: number;
+}
+
+class PackageLineDto {
+  @IsString() packageId: string;
+  @IsInt() pax: number;
+  @IsArray() @IsString({ each: true }) choices: string[];
+}
+
+class ExtraLineDto {
+  @IsIn(['menuItem', 'modifier']) kind: 'menuItem' | 'modifier';
+  @IsString() itemId: string;
+  @IsNumber() qty: number;
+  @IsOptional() @IsString() @MaxLength(200) note?: string;
+}
+
+class MenuDto {
+  @IsArray() @ValidateNested({ each: true }) @Type(() => PackageLineDto) packages: PackageLineDto[];
+  @IsArray() @ValidateNested({ each: true }) @Type(() => ExtraLineDto) extras: ExtraLineDto[];
+  @IsOptional() @IsString() amendmentReasonId?: string;
+}
+
+class ReceiptDto {
+  @IsNumber() amount: number;
+  @IsIn(SETTLEMENT_MODES) mode: SettlementMode;
+  @IsOptional() @IsString() date?: string;
+  @IsOptional() @IsString() @MaxLength(100) reference?: string;
 }
 
 class BlockDto {
@@ -83,7 +111,32 @@ export class ReservationsController {
   @HttpCode(200)
   @RequirePermission('reservations.manage')
   status(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() body: StatusDto) {
-    return this.reservations.changeStatus(tenant._id, auth.user.id as string, id, body.status, body);
+    const canSkipAdvance = auth.role.permissions.includes('reservations.confirmWithoutAdvance');
+    return this.reservations.changeStatus(tenant._id, auth.user.id as string, id, body.status, { ...body, canSkipAdvance });
+  }
+
+  @Get('reservations/:id/details')
+  @RequirePermission('diary.view')
+  details(@CurrentTenant() tenant: TenantDocument, @Param('id') id: string) {
+    return this.reservations.details(tenant._id, id);
+  }
+
+  @Get('reservations/:id/menu-options')
+  @RequirePermission('diary.view')
+  menuOptions(@CurrentTenant() tenant: TenantDocument, @Param('id') id: string) {
+    return this.reservations.menuOptions(tenant._id, id);
+  }
+
+  @Put('reservations/:id/menu')
+  @RequirePermission('reservations.manage')
+  menu(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() body: MenuDto) {
+    return this.reservations.saveMenu(tenant._id, auth.user.id as string, id, body);
+  }
+
+  @Post('reservations/:id/receipts')
+  @RequirePermission('reservations.manage')
+  receipt(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() body: ReceiptDto) {
+    return this.reservations.addReceipt(tenant._id, auth.user.id as string, id, body);
   }
 
   @Post('hall-blocks')
