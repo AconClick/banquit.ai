@@ -1,5 +1,6 @@
 import { config } from '../src/config.js';
 import { ADMIN, startApp, tokenOf } from './helpers.js';
+import { consoleTokenOf } from './console-helpers.js';
 
 describe('Security: session cookie, CSRF, rate limits, headers', () => {
   let t: Awaited<ReturnType<typeof startApp>>;
@@ -108,7 +109,7 @@ describe('Security: session cookie, CSRF, rate limits, headers', () => {
     const password = t.passwordIn(t.lastMessage('sec@banquet.ai').body);
     const signIn = async (pw: string) => {
       const otp = (await t.http().post('/api/support/login').send({ email: 'sec@banquet.ai', password: pw }).expect(200)).body.otpToken;
-      return (await t.http().post('/api/support/otp/verify').send({ otpToken: otp, code: t.otpIn(t.lastMessage('sec@banquet.ai').body) }).expect(200)).body.token as string;
+      return consoleTokenOf(await t.http().post('/api/support/otp/verify').send({ otpToken: otp, code: t.otpIn(t.lastMessage('sec@banquet.ai').body) }).expect(200));
     };
     let console = await signIn(password);
     await t.http().post('/api/support/change-password').auth(console, auth).send({ currentPassword: password, newPassword: 'Support2026x' }).expect(200);

@@ -10,6 +10,42 @@ export class CustomDomain {
 
   @Prop({ default: false })
   verified: boolean;
+
+  /** Value the client puts in a TXT record at `_banquet-verify.<domain>` to prove they own it. */
+  @Prop()
+  verifyToken?: string;
+
+  @Prop()
+  addedAt?: Date;
+
+  @Prop()
+  verifiedAt?: Date;
+
+  @Prop()
+  lastCheckedAt?: Date;
+
+  /** Why the last DNS check failed, in plain words. */
+  @Prop()
+  lastCheckError?: string;
+}
+
+/** One change of account status, with who made it and why. */
+@Schema({ _id: false })
+export class StatusChange {
+  @Prop({ type: String })
+  from: TenantStatus | null;
+
+  @Prop({ type: String, required: true })
+  to: TenantStatus;
+
+  @Prop({ required: true })
+  at: Date;
+
+  @Prop({ required: true })
+  by: string;
+
+  @Prop({ default: '' })
+  reason: string;
 }
 
 @Schema({ _id: false })
@@ -54,6 +90,23 @@ export class Tenant {
   /** How Banquet.ai support may enter: at any time (client is told), or only after the client approves. */
   @Prop({ type: String, default: 'allowed' })
   supportAccess: 'allowed' | 'ask';
+
+  // ---- Subscription (managed in the Banquet.ai admin console) ----
+
+  /** Code of the client's plan (see Plan). */
+  @Prop()
+  planCode?: string;
+
+  /** Free use until this date ("YYYY-MM-DD"), if the client is on a trial. */
+  @Prop()
+  trialEndsAt?: string;
+
+  /** Paid up to and including this date ("YYYY-MM-DD"). Moves forward as payments are recorded. */
+  @Prop()
+  paidUntil?: string;
+
+  @Prop({ type: [StatusChange], default: [] })
+  statusHistory: StatusChange[];
 }
 
 export type TenantDocument = HydratedDocument<Tenant>;
