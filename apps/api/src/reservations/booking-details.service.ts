@@ -23,7 +23,6 @@ export interface ReceiptInput {
 /** Statuses that can still be cancelled with a charge (enquiries and waitlist never pay one). */
 const CHARGEABLE = ['provisional', 'confirmed'];
 
-const today = () => new Date().toISOString().slice(0, 10);
 const daysBetween = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 export const functionDate = (r: ReservationDocument) => r.slots.map((s) => s.start.slice(0, 10)).sort()[0];
 
@@ -71,9 +70,9 @@ export class BookingDetailsService {
   }
 
   /** What cancelling today would cost, or null when no charge applies. */
-  cancellationPreview(r: ReservationDocument, total: number, settings: PropertySettingsValues) {
+  cancellationPreview(r: ReservationDocument, total: number, settings: PropertySettingsValues, today: string) {
     if (!CHARGEABLE.includes(r.status)) return null;
-    const daysBefore = daysBetween(today(), functionDate(r));
+    const daysBefore = daysBetween(today, functionDate(r));
     const slab = slabFor(settings.cancellationSlabs, daysBefore);
     const computed = round2((total * slab.percent) / 100);
     return { daysBefore, percent: slab.percent, computed, ...this.split(computed, this.paid(r)) };
@@ -101,7 +100,7 @@ export class BookingDetailsService {
         ? { daysBefore: r.cancellation.daysBefore, percent: r.cancellation.percent, computed: r.cancellation.computed, charge: r.cancellation.charge,
           retained: r.cancellation.retained, refundDue: r.cancellation.refundDue, balanceDue: r.cancellation.balanceDue }
         : null,
-      cancellationPreview: this.cancellationPreview(r, quote.total, settings),
+      cancellationPreview: this.cancellationPreview(r, quote.total, settings, await this.masters.propertyToday(tenantId, r.propertyId)),
       menuWarnings: await this.menuWarnings(tenantId, r),
       guaranteeCutoff: this.cutoff(r, settings),
     };
@@ -177,10 +176,11 @@ export class BookingDetailsService {
 
   async addReceipt(tenantId: Types.ObjectId, userId: string, r: ReservationDocument, input: ReceiptInput) {
     const problems: string[] = [];
-    if (typeof input.amount !== 'number' || !Number.isFinite(input.amount) || input.amount <= 0) problems.push('Amount must be more than 0.');
+    if (typeof input.amount !== 'number' || !Number.isFinite(input.amount) || round2(input.amount) <= 0) problems.push('Amount must be more than 0.');
     if (!SETTLEMENT_MODES.includes(input.mode)) problems.push('Choose how the money was paid.');
-    const date = input.date || today();
-    if (!isDate(date) || date > today()) problems.push('Receipt date must be today or earlier.');
+    const today = await this.masters.propertyToday(tenantId, r.propertyId);
+    const date = input.date || today;
+    if (!isDate(date) || date > today) problems.push('Receipt date must be today or earlier.');
     if (problems.length) throw new BadRequestException(problems);
     const c = await this.counters.findOneAndUpdate({ tenantId, name: 'receipt' }, { $inc: { seq: 1 } }, { upsert: true, returnDocument: 'after' });
     r.receipts.push({

@@ -230,7 +230,8 @@ export class MasterPage {
     this.editingId = record?.id ?? null;
     this.form = {};
     for (const f of def.fields) {
-      const v = record ? record[f.key] : f.default;
+      // Records saved before a field existed get its default too (e.g. a property's time zone).
+      const v = record ? (record[f.key] ?? f.default) : f.default;
       this.form[f.key] = v ?? (f.type === 'refs' ? [] : f.type === 'boolean' ? false : '');
     }
     this.packageGroups = structuredClone((record?.['groups'] as PackageGroup[] | undefined) ?? []);

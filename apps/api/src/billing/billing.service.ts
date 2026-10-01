@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Error as MongooseError, Model, Types } from 'mongoose';
 import { MastersService } from '../masters/masters.service.js';
 import { Counter } from '../reservations/reservation.schema.js';
 import { calculateBill, round2, type AType, type BillLineInput, type BillTotals, type Discount, type LineSource, type TaxRate } from './bill-engine.js';
@@ -46,7 +46,7 @@ const ADDED: LineSource[] = ['running', 'hallHire', 'liquorLicence'];
 /** Month the financial year starts (April). Series Setup will make this a per-property setting. */
 const FINANCIAL_YEAR_START_MONTH = 4;
 
-const today = () => new Date().toISOString().slice(0, 10);
+const CHANGED_ELSEWHERE = 'This bill was changed by someone else. Reload it and try again.';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isMoney = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
 const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
@@ -128,18 +128,26 @@ export class BillingService {
       throw new ConflictException(`${booking.number} already has a bill.`);
     }
     const lines = await this.bookingLines(tenantId, booking);
-    const bill = await this.bills.create({
-      tenantId,
-      propertyId: booking.propertyId,
-      reservationId: booking.id,
-      reservationNumber: booking.number,
-      hostName: booking.hostName,
-      functionDate: booking.functionDate,
-      status: 'draft',
-      lines,
-      roundTotal: await this.source.roundTotal(tenantId, booking.propertyId),
-      history: [{ action: 'Draft created', at: new Date(), byUserId: userId }],
-    });
+    let bill: BillDocument;
+    try {
+      bill = await this.bills.create({
+        tenantId,
+        propertyId: booking.propertyId,
+        reservationId: booking.id,
+        reservationNumber: booking.number,
+        hostName: booking.hostName,
+        functionDate: booking.functionDate,
+        status: 'draft',
+        openFor: booking.id,
+        lines,
+        roundTotal: await this.source.roundTotal(tenantId, booking.propertyId),
+        history: [{ action: 'Draft created', at: new Date(), byUserId: userId }],
+      });
+    } catch (err) {
+      // Someone drafted the same booking at the same moment.
+      if ((err as { code?: number }).code === 11000) throw new ConflictException(`${booking.number} already has a bill.`);
+      throw err;
+    }
     return this.view(tenantId, bill, booking);
   }
 
@@ -175,7 +183,7 @@ export class BillingService {
     bill.lines = lines;
     bill.billDiscount = billDiscount;
     bill.history.push({ action: 'Draft saved', at: new Date(), byUserId: userId });
-    await bill.save();
+    await this.saveChecked(bill);
     return this.view(tenantId, bill, booking);
   }
 
@@ -199,7 +207,7 @@ export class BillingService {
     bill.hostName = booking.hostName;
     bill.functionDate = booking.functionDate;
     bill.history.push({ action: 'Refreshed from booking', at: new Date(), byUserId: userId });
-    await bill.save();
+    await this.saveChecked(bill);
     return this.view(tenantId, bill, booking);
   }
 
@@ -219,23 +227,27 @@ export class BillingService {
     const rates = await this.taxRates(tenantId, bill);
     const advances = booking.receipts.filter((r) => r.amount > 0).map((r) => ({ number: r.number, date: r.date, amount: round2(r.amount), mode: r.mode }));
     const totals = calculateBill(this.engineInput(bill, rates, booking, advances.reduce((s, a) => s + a.amount, 0)));
-    const fy = financialYear(today());
-    const seq = await this.next(tenantId, `bill:${bill.propertyId}:${fy}`);
-    const number = `B/${fy}/${String(seq).padStart(6, '0')}`;
     const status = this.statusFor(totals.balance, advances.length > 0);
 
-    const done = await this.bills.findOneAndUpdate(
-      { _id: bill._id, tenantId, status: 'draft' },
+    // Lock the draft first, and only if nobody changed it since it was read: only the request that
+    // wins takes a bill number, so parallel clicks never leave gaps in the series.
+    const locked = await this.bills.findOneAndUpdate(
+      { _id: bill._id, tenantId, status: 'draft', __v: bill.__v },
       {
-        $set: {
-          status, number, finalisedAt: new Date(), advances, taxRates: Object.fromEntries(rates),
-          totals: this.storedTotals(totals),
-        },
-        $push: { history: { action: `Finalised as ${number}`, at: new Date(), byUserId: userId } },
+        $set: { status, finalisedAt: new Date(), advances, taxRates: Object.fromEntries(rates), totals: this.storedTotals(totals) },
+        $inc: { __v: 1 },
       },
       { returnDocument: 'after' },
     );
-    if (!done) throw new ConflictException('This bill was changed by someone else. Reload it and try again.');
+    if (!locked) throw new ConflictException(CHANGED_ELSEWHERE);
+    const fy = financialYear(await this.masters.propertyToday(tenantId, bill.propertyId));
+    const seq = await this.next(tenantId, `bill:${bill.propertyId}:${fy}`);
+    const number = `B/${fy}/${String(seq).padStart(6, '0')}`;
+    const done = (await this.bills.findOneAndUpdate(
+      { _id: bill._id, tenantId },
+      { $set: { number }, $push: { history: { action: `Finalised as ${number}`, at: new Date(), byUserId: userId } }, $inc: { __v: 1 } },
+      { returnDocument: 'after' },
+    ))!;
     if (status === 'settled') await this.source.markBilled(tenantId, done.reservationId, userId, number);
     return this.view(tenantId, done, booking);
   }
@@ -244,16 +256,18 @@ export class BillingService {
   async addPayment(tenantId: Types.ObjectId, userId: string, id: string, input: PaymentInput) {
     const bill = await this.get(tenantId, id);
     if (bill.status !== 'finalised' && bill.status !== 'partiallySettled') throw new BadRequestException('Payments are taken on a final bill that is not yet settled.');
+    if (!bill.number) throw new ConflictException('This bill is still being finalised. Reload it and try again.');
     const kind = input.kind ?? 'payment';
     const balance = this.balance(bill, bill.totals!.total);
     const problems: string[] = [];
     if (kind !== 'payment' && kind !== 'refund') problems.push('Choose payment or refund.');
-    if (!isMoney(input.amount) || input.amount <= 0) problems.push('Amount must be more than 0.');
+    if (!isMoney(input.amount) || round2(input.amount) <= 0) problems.push('Amount must be more than 0.');
     else if (kind === 'payment' && round2(input.amount) > balance) problems.push(balance > 0 ? `The balance is ${balance.toFixed(2)}; take no more than that.` : 'Nothing is left to collect on this bill.');
     else if (kind === 'refund' && round2(input.amount) > -balance) problems.push(balance < 0 ? `Only ${(-balance).toFixed(2)} is due back to the guest.` : 'Nothing is due back to the guest.');
     if (!(PAYMENT_MODES as readonly string[]).includes(input.mode)) problems.push('Choose how the money was paid.');
-    const date = input.date || today();
-    if (!DATE.test(date) || date > today()) problems.push('Date must be today or earlier.');
+    const today = await this.masters.propertyToday(tenantId, bill.propertyId);
+    const date = input.date || today;
+    if (!DATE.test(date) || date > today) problems.push('Date must be today or earlier.');
     if (problems.length) throw new BadRequestException(problems);
 
     const seq = await this.next(tenantId, kind === 'refund' ? 'billRefund' : 'billPayment');
@@ -269,10 +283,11 @@ export class BillingService {
       {
         $push: { payments: payment, history: { action: `${kind === 'refund' ? 'Refund' : 'Payment'} ${payment.number}`, at: new Date(), byUserId: userId } },
         $set: { status },
+        $inc: { __v: 1 },
       },
       { returnDocument: 'after' },
     );
-    if (!done) throw new ConflictException('This bill was changed by someone else. Reload it and try again.');
+    if (!done) throw new ConflictException(CHANGED_ELSEWHERE);
     if (status === 'settled') await this.source.markBilled(tenantId, done.reservationId, userId, done.number!);
     return this.getView(tenantId, id);
   }
@@ -288,10 +303,15 @@ export class BillingService {
     }
     const done = await this.bills.findOneAndUpdate(
       { _id: bill._id, tenantId, status: bill.status, payments: { $size: 0 } },
-      { $set: { status: 'void', voidReason: why }, $push: { history: { action: 'Voided', at: new Date(), byUserId: userId, note: why } } },
+      {
+        $set: { status: 'void', voidReason: why },
+        $unset: { openFor: 1 },
+        $push: { history: { action: 'Voided', at: new Date(), byUserId: userId, note: why } },
+        $inc: { __v: 1 },
+      },
       { returnDocument: 'after' },
     );
-    if (!done) throw new ConflictException('This bill was changed by someone else. Reload it and try again.');
+    if (!done) throw new ConflictException(CHANGED_ELSEWHERE);
     return this.view(tenantId, done, await this.booking(tenantId, done.reservationId));
   }
 
@@ -510,6 +530,17 @@ export class BillingService {
       phone: b.phone, email: b.email, functionDate: b.functionDate, guaranteedPax: b.guaranteedPax, expectedMaxPax: b.expectedMaxPax,
       halls: b.slots.map((s) => ({ hallId: s.hallId, start: s.start, end: s.end, hours: hoursBetween(s.start, s.end) })),
     };
+  }
+
+  /** Saves a draft only if nobody saved, finalised or voided it since it was read. */
+  private async saveChecked(bill: BillDocument) {
+    bill.increment();
+    try {
+      await bill.save();
+    } catch (err) {
+      if (err instanceof MongooseError.VersionError) throw new ConflictException(CHANGED_ELSEWHERE);
+      throw err;
+    }
   }
 
   private async next(tenantId: Types.ObjectId, name: string) {
