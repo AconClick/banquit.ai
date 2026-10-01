@@ -14,7 +14,10 @@ import { MastersStore } from './master/masters-store';
       <div class="brand">Banquet<span>.ai</span></div>
       <span class="muted tenant">{{ tenants.tenant()?.name }}</span>
       @if (session.activity() !== 'master') {
-        <nav><a routerLink="/operations" routerLinkActive="active">Reservation Diary</a></nav>
+        <nav>
+          <a routerLink="/operations" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Reservation Diary</a>
+          <a routerLink="/operations/billing" routerLinkActive="active">Bills</a>
+        </nav>
       }
       <span class="spacer"></span>
       <span class="pill">{{ labels[session.activity() ?? 'operations'] }}</span>
