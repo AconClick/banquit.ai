@@ -28,6 +28,8 @@ export interface FieldDef {
   patternHint?: string;
   /** text: stored in capitals. */
   uppercase?: boolean;
+  /** text: must be a time zone name such as Asia/Kolkata. */
+  timeZone?: boolean;
   /** number: lowest and highest allowed values, and whether decimals are allowed. */
   min?: number;
   max?: number;
@@ -94,6 +96,10 @@ export const MASTERS: MasterDef[] = [
       {
         key: 'currency', label: 'Currency', type: 'text', required: true, pattern: '^[A-Z]{3}$',
         patternHint: 'a 3-letter currency code such as INR, USD or AED', uppercase: true, list: true, default: 'INR',
+      },
+      {
+        key: 'timeZone', label: 'Time zone', type: 'text', required: true, maxLength: 60, timeZone: true, default: 'Asia/Kolkata',
+        hint: 'Where the property is, e.g. Asia/Kolkata, Asia/Dubai or Europe/London. Sets "today" for payments, receipts and the financial year.',
       },
     ],
   },

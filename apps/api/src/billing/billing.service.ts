@@ -46,7 +46,6 @@ const ADDED: LineSource[] = ['running', 'hallHire', 'liquorLicence'];
 /** Month the financial year starts (April). Series Setup will make this a per-property setting. */
 const FINANCIAL_YEAR_START_MONTH = 4;
 
-const today = () => new Date().toISOString().slice(0, 10);
 const CHANGED_ELSEWHERE = 'This bill was changed by someone else. Reload it and try again.';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isMoney = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
@@ -241,7 +240,7 @@ export class BillingService {
       { returnDocument: 'after' },
     );
     if (!locked) throw new ConflictException(CHANGED_ELSEWHERE);
-    const fy = financialYear(today());
+    const fy = financialYear(await this.masters.propertyToday(tenantId, bill.propertyId));
     const seq = await this.next(tenantId, `bill:${bill.propertyId}:${fy}`);
     const number = `B/${fy}/${String(seq).padStart(6, '0')}`;
     const done = (await this.bills.findOneAndUpdate(
@@ -266,8 +265,9 @@ export class BillingService {
     else if (kind === 'payment' && round2(input.amount) > balance) problems.push(balance > 0 ? `The balance is ${balance.toFixed(2)}; take no more than that.` : 'Nothing is left to collect on this bill.');
     else if (kind === 'refund' && round2(input.amount) > -balance) problems.push(balance < 0 ? `Only ${(-balance).toFixed(2)} is due back to the guest.` : 'Nothing is due back to the guest.');
     if (!(PAYMENT_MODES as readonly string[]).includes(input.mode)) problems.push('Choose how the money was paid.');
-    const date = input.date || today();
-    if (!DATE.test(date) || date > today()) problems.push('Date must be today or earlier.');
+    const today = await this.masters.propertyToday(tenantId, bill.propertyId);
+    const date = input.date || today;
+    if (!DATE.test(date) || date > today) problems.push('Date must be today or earlier.');
     if (problems.length) throw new BadRequestException(problems);
 
     const seq = await this.next(tenantId, kind === 'refund' ? 'billRefund' : 'billPayment');

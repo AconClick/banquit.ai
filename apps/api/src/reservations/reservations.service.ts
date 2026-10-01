@@ -211,9 +211,9 @@ export class ReservationsService {
       }
     }
     if (to === 'inFunction') {
-      // Started by the banquet captain on the day; a day's leeway covers time zones and early set-up.
+      // Started by the banquet captain on the day; a day's leeway covers early set-up.
       const first = r.slots.map((s) => s.start.slice(0, 10)).sort()[0];
-      if (addDays(new Date().toISOString().slice(0, 10), 1) < first) {
+      if (addDays(await this.masters.propertyToday(tenantId, r.propertyId), 1) < first) {
         throw new BadRequestException(`The function can be started from its date (${first}).`);
       }
     }
@@ -296,7 +296,7 @@ export class ReservationsService {
   /** Cancellation charge from the property's slabs, taken from advances first (open-questions.md, section 2). */
   private async chargeCancellation(tenantId: Types.ObjectId, r: ReservationDocument, override: number | undefined, note: string | undefined) {
     const { proforma, settings } = await this.booking.quote(tenantId, r);
-    const preview = this.booking.cancellationPreview(r, proforma.total, settings);
+    const preview = this.booking.cancellationPreview(r, proforma.total, settings, await this.masters.propertyToday(tenantId, r.propertyId));
     if (!preview) {
       if (override !== undefined && override > 0) throw new BadRequestException('This booking carries no cancellation charge.');
       if (r.receipts.length) {
@@ -443,7 +443,7 @@ export class ReservationsService {
 
   /** Given or default option date: by default 7 days from today, but at least 3 days before the function. */
   private async optionDate(tenantId: Types.ObjectId, propertyId: string, given: string | undefined, slots: HallSlot[]) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = await this.masters.propertyToday(tenantId, propertyId);
     const firstDay = slots.map((s) => s.start.slice(0, 10)).sort()[0];
     if (given) {
       if (!isDate(given)) throw new BadRequestException('Option date must be a date (YYYY-MM-DD).');

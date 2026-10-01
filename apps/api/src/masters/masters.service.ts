@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { FieldDef, MASTER_BY_KIND, MASTERS, MasterDef } from './definitions.js';
 import { MasterRecord, MasterRecordDocument } from './master-record.schema.js';
+import { isTimeZone, todayIn } from '../reservations/local-time.js';
 
 export interface PackageGroup {
   subGroupId: string;
@@ -37,6 +38,12 @@ export class MastersService {
     const record = Types.ObjectId.isValid(id) ? await this.records.findOne({ tenantId, kind, _id: id }) : null;
     if (!record) throw new NotFoundException(`${this.definition(kind).singular} not found.`);
     return record;
+  }
+
+  /** Today's date at the property, in its own time zone. */
+  async propertyToday(tenantId: Types.ObjectId, propertyId: string) {
+    const property = await this.get(tenantId, 'property', propertyId).catch(() => null);
+    return todayIn(property?.values.timeZone as string | undefined);
   }
 
   async create(tenantId: Types.ObjectId, kind: string, input: Record<string, unknown>) {
@@ -141,6 +148,7 @@ export class MastersService {
         if (field.uppercase) value = value.toUpperCase();
         if (field.maxLength && value.length > field.maxLength) return fail(`must be at most ${field.maxLength} characters.`);
         if (field.pattern && !new RegExp(field.pattern).test(value)) return fail(`must be ${field.patternHint ?? 'in the right format'}.`);
+        if (field.timeZone && !isTimeZone(value)) return fail('must be a time zone name such as Asia/Kolkata or Europe/London.');
         return value;
       }
       case 'number': {
