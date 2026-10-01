@@ -45,3 +45,25 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  api-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production API image
+        run: docker build -t banquetai-api:ci apps/api
+      - name: The image refuses to start without production settings
+        run: |
+          if docker run --rm banquetai-api:ci; then echo "started without secrets" && exit 1; fi
+
+  infra:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/aws
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate

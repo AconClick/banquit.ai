@@ -37,6 +37,6 @@ HTTP headers, secrets and dependencies. Tenant isolation was checked separately 
 ## Still to do before go-live
 
 - A penetration test by an outside firm once the app is on AWS.
-- AWS WAF in front of CloudFront (managed rule sets plus a rate rule) — included in the infrastructure template.
+- AWS WAF in front of CloudFront (managed rule sets plus a rate rule) is in `infra/aws/web.tf`; watch its blocks in the first weeks.
 - Rotate `JWT_SECRET` and `PLATFORM_ADMIN_TOKEN` through Secrets Manager; rotating `JWT_SECRET` logs everyone out.
 - Replace the shared `PLATFORM_ADMIN_TOKEN` with named admin logins when the admin console is built.
