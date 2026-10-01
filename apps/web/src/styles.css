@@ -12,6 +12,7 @@
   --ok: #1d6b34;
   --info-bg: #eef4ff;
   --warn: #b54708;
+  --warn-bg: #fff4e0;
   --radius: 8px;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color: var(--text);
@@ -31,6 +32,7 @@
     --ok: #7fd49a;
     --info-bg: #1d2840;
     --warn: #ffb366;
+    --warn-bg: #3a2a14;
   }
 }
 

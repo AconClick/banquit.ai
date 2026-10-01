@@ -52,7 +52,7 @@ describe('Banquet.ai support login', () => {
     expect(entered.subdomain).toBe('helpme');
     let inside = entered.token as string;
     const me = (await t.http().get('/api/auth/me').set('Host', host).auth(inside, auth).expect(200)).body;
-    expect(me).toMatchObject({ support: true, activity: 'master', user: { firstName: 'Banquet.ai Support:', lastName: 'agent one' } });
+    expect(me).toMatchObject({ support: true, activity: 'master', user: { firstName: 'agent one', userId: 'Banquet.ai Support', kind: 'support' } });
 
     // Read-only: reading works, changing does not.
     await t.http().get('/api/masters/company').set('Host', host).auth(inside, auth).expect(200);
@@ -75,7 +75,7 @@ describe('Banquet.ai support login', () => {
 
     // Support never appears in the client's user list.
     const users = (await t.http().get('/api/users').set('Host', host).auth(entp, auth).expect(200)).body as { userId: string }[];
-    expect(users.map((u) => u.userId)).not.toContain('banquet.ai-support');
+    expect(users.map((u) => u.userId)).not.toContain('Banquet.ai Support');
 
     const log = (await t.http().get('/api/support-access').set('Host', host).auth(entp, auth).expect(200)).body;
     expect(log.supportAccess).toBe('allowed');

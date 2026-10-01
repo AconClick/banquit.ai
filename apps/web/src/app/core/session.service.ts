@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
-import { Activity, SessionResponse, User } from './models';
+import { Activity, SessionResponse, SupportSessionInfo, User } from './models';
 
 const KEY = 'banquet.session';
 
@@ -10,6 +10,7 @@ interface Stored {
   user: User;
   activity: Activity | null;
   activities: Activity[];
+  support?: SupportSessionInfo;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -21,6 +22,8 @@ export class SessionService {
   readonly activity = computed(() => this.state()?.activity ?? null);
   readonly activities = computed(() => this.state()?.activities ?? []);
   readonly loggedIn = computed(() => !!this.state());
+  /** Set while Banquet.ai support is inside this account. */
+  readonly support = computed(() => this.state()?.support ?? null);
   /** Shown on the login page after the server ends a session (signed in elsewhere, idle, expired). */
   readonly notice = signal<string | null>(null);
 
@@ -29,7 +32,22 @@ export class SessionService {
   }
 
   apply(res: SessionResponse) {
-    this.save({ token: res.token, user: res.user, activity: res.activity, activities: res.activities });
+    this.save({ token: res.token, user: res.user, activity: res.activity, activities: res.activities, support: res.support });
+  }
+
+  /** Keeps the support session details (mode, end time) up to date in the banner. */
+  setSupport(support: SupportSessionInfo) {
+    const current = this.state();
+    if (current) this.save({ ...current, support });
+  }
+
+  /** Support sessions switch panel without a new login or OTP; the session stays the same. */
+  async switchSupportPanel(activity: Activity) {
+    this.apply(await firstValueFrom(this.http.post<SessionResponse>('/api/support-session/activity', { activity })));
+  }
+
+  async supportEditMode(reason: string) {
+    this.setSupport(await firstValueFrom(this.http.post<SupportSessionInfo>('/api/support-session/edit-mode', { reason })));
   }
 
   async login(userId: string, password: string) {

@@ -5,7 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { randomUUID } from 'node:crypto';
-import { authRules } from '../config.js';
+import { authRules, config } from '../config.js';
 import { checkPassword, generateOtp, generatePassword, hashPassword, passwordProblem, sha256 } from '../common/passwords.js';
 import { Notifier } from '../notifications/notifier.js';
 import { ACTIVITIES, ALL_PERMISSIONS, type Activity } from '../roles/permissions.js';
@@ -59,9 +59,9 @@ export function supportIdentity(s: SupportSessionDocument) {
   const user = {
     _id: undefined,
     id: `support:${s.id as string}`,
-    userId: 'banquet.ai-support',
-    firstName: 'Banquet.ai Support:',
-    lastName: s.supportName,
+    userId: 'Banquet.ai Support',
+    firstName: s.supportName,
+    lastName: '',
     email: '',
     mobile: '',
     roleId: 'support',
@@ -233,7 +233,8 @@ export class SupportService {
     if (s.status !== 'active' || isExpired(s)) throw new BadRequestException('This support session has ended. Start a new one with a reason.');
     const tenant = await this.tenants.findById(s.tenantId);
     if (!tenant || tenant.status !== 'active') throw new NotFoundException('This client is not active.');
-    return { ...(await this.sessionToken(s, activity)), subdomain: tenant.subdomain };
+    const loginHost = tenant.customDomains.find((d) => d.verified)?.domain ?? `${tenant.subdomain}.${config.baseDomain}`;
+    return { ...(await this.sessionToken(s, activity)), subdomain: tenant.subdomain, loginHost };
   }
 
   async endFromConsole(user: SupportUserDocument, id: string) {
