@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { Bill } from '../billing/bill.schema.js';
 import { MasterRecord } from '../masters/master-record.schema.js';
 import { addDays, isDate } from '../reservations/local-time.js';
 import { HallBlock, Reservation } from '../reservations/reservation.schema.js';
@@ -26,6 +27,7 @@ export class ReportsService {
     @InjectModel(Reservation.name) private readonly reservations: Model<Reservation>,
     @InjectModel(HallBlock.name) private readonly blocks: Model<HallBlock>,
     @InjectModel(MasterRecord.name) private readonly masters: Model<MasterRecord>,
+    @InjectModel(Bill.name) private readonly bills: Model<Bill>,
   ) {}
 
   async bookingsByStatus(tenantId: Types.ObjectId, q: ReportQuery) {
@@ -70,10 +72,25 @@ export class ReportsService {
     };
   }
 
-  /** Revenue needs bills, which arrive with the billing module. */
+  /** Revenue from final bills, by function date. Reads bills; never changes them. */
   async revenue(tenantId: Types.ObjectId, q: ReportQuery) {
     const scope = await this.scope(tenantId, q, MAX_REPORT_DAYS);
-    return { ...this.header(scope), available: false, message: 'Revenue reports will be available once billing is in place.', rows: [] };
+    const docs = await this.bills
+      .find({
+        tenantId,
+        propertyId: { $in: scope.propertyIds },
+        status: { $in: [...math.REVENUE_BILL_STATUSES] },
+        functionDate: { $gte: scope.from, $lte: scope.to },
+      })
+      .lean();
+    const bills = docs
+      .filter((b) => b.totals)
+      .map((b) => ({
+        id: String(b._id), number: b.number ?? '', propertyId: b.propertyId, reservationId: b.reservationId,
+        reservationNumber: b.reservationNumber, hostName: b.hostName, functionDate: b.functionDate, status: b.status,
+        totals: b.totals as unknown as math.BillLike['totals'], advances: b.advances, payments: b.payments,
+      }));
+    return { ...this.header(scope), ...math.revenue(bills, scope.currencies, scope.from, scope.to) };
   }
 
   /** Checks the dates and property, and loads the halls the report covers. */
@@ -98,7 +115,8 @@ export class ReportsService {
         capacity: Number(h.values.capacity),
       }));
     const propertyNames = new Map(properties.map((p) => [String(p._id), String(p.values.name)]));
-    return { from: q.from, to: q.to, propertyId: q.propertyId || null, propertyIds, propertyNames, halls };
+    const currencies = new Map(properties.map((p) => [String(p._id), String(p.values.currency ?? '')]));
+    return { from: q.from, to: q.to, propertyId: q.propertyId || null, propertyIds, propertyNames, currencies, halls };
   }
 
   private header(scope: Awaited<ReturnType<ReportsService['scope']>>) {

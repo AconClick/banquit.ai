@@ -308,3 +308,115 @@ export function menuDemand(reservations: ReservationLike[], itemNames: Map<strin
   const byName = <T extends { name: string }>(m: Map<string, T>) => [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
   return { packages: byName(packages), dishes: byName(dishes), extras: byName(extras) };
 }
+
+export interface BillLike {
+  id: string;
+  number: string;
+  propertyId: string;
+  reservationId: string;
+  reservationNumber: string;
+  hostName: string;
+  functionDate: string;
+  status: string;
+  totals: {
+    amount: number;
+    discount: number;
+    taxable: number;
+    taxTotal: number;
+    roundOff: number;
+    total: number;
+    taxes: { id: string; name: string; amount: number }[];
+    lines: { aType: string; source: string; taxable: number; taxes: { amount: number }[]; total: number }[];
+  };
+  advances: { amount: number }[];
+  payments: { kind: 'payment' | 'refund'; amount: number }[];
+}
+
+/** Bills that count as revenue: final, whether or not they are paid. Drafts and void bills do not. */
+export const REVENUE_BILL_STATUSES = ['finalised', 'partiallySettled', 'settled'] as const;
+
+const money = (n: number) => Math.round(n * 100) / 100;
+const A_TYPE_LABELS: Record<string, string> = { package: 'Packages', alacarte: 'Ala carte', services: 'Services' };
+const SOURCE_LABELS: Record<string, string> = {
+  package: 'Packages', extra: 'Booked extras', running: 'Ordered during the function', hallHire: 'Hall hire', liquorLicence: 'Liquor licence',
+};
+
+/**
+ * Revenue from final bills whose function date falls in the range, split by A-Type (PAS) and by
+ * line source, with taxes and money collected. Amounts are in each property's own currency, so
+ * the grand total is only given when every property in the report uses the same currency.
+ */
+export function revenue(bills: BillLike[], currencies: Map<string, string>, from: string, to: string) {
+  const counted = bills.filter((b) => (REVENUE_BILL_STATUSES as readonly string[]).includes(b.status) && b.functionDate >= from && b.functionDate <= to && b.totals);
+  const collectedOf = (b: BillLike) =>
+    b.advances.reduce((s, a) => s + a.amount, 0) + b.payments.reduce((s, p) => s + (p.kind === 'refund' ? -p.amount : p.amount), 0);
+
+  const empty = () => ({ bills: 0, amount: 0, discount: 0, taxable: 0, taxTotal: 0, roundOff: 0, total: 0, collected: 0, balance: 0 });
+  type Sum = ReturnType<typeof empty>;
+  const add = (s: Sum, b: BillLike) => {
+    const collected = collectedOf(b);
+    s.bills += 1;
+    s.amount += b.totals.amount;
+    s.discount += b.totals.discount;
+    s.taxable += b.totals.taxable;
+    s.taxTotal += b.totals.taxTotal;
+    s.roundOff += b.totals.roundOff;
+    s.total += b.totals.total;
+    s.collected += collected;
+    s.balance += b.totals.total - collected;
+  };
+  const rounded = (s: Sum) => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, k === 'bills' ? v : money(v)])) as Sum;
+
+  const byProperty = new Map<string, Sum>();
+  const group = (key: (l: BillLike['totals']['lines'][number]) => string, labels: Record<string, string>) => {
+    const rows = new Map<string, { key: string; label: string; taxable: number; tax: number; total: number }>();
+    for (const b of counted) {
+      for (const l of b.totals.lines) {
+        const k = key(l);
+        const row = rows.get(k) ?? { key: k, label: labels[k] ?? k, taxable: 0, tax: 0, total: 0 };
+        row.taxable += l.taxable;
+        row.tax += l.taxes.reduce((s, t) => s + t.amount, 0);
+        row.total += l.total;
+        rows.set(k, row);
+      }
+    }
+    return [...rows.values()].map((r) => ({ ...r, taxable: money(r.taxable), tax: money(r.tax), total: money(r.total) }));
+  };
+  const taxes = new Map<string, { id: string; name: string; amount: number }>();
+  for (const b of counted) {
+    const s = byProperty.get(b.propertyId) ?? empty();
+    add(s, b);
+    byProperty.set(b.propertyId, s);
+    for (const t of b.totals.taxes) {
+      const row = taxes.get(t.id) ?? { id: t.id, name: t.name, amount: 0 };
+      row.amount += t.amount;
+      taxes.set(t.id, row);
+    }
+  }
+
+  const used = new Set([...byProperty.keys()].map((p) => currencies.get(p) ?? ''));
+  const oneCurrency = used.size <= 1;
+  const total = empty();
+  if (oneCurrency) for (const b of counted) add(total, b);
+
+  return {
+    currency: oneCurrency ? ([...used][0] ?? null) : null,
+    mixedCurrencies: !oneCurrency,
+    total: oneCurrency ? rounded(total) : null,
+    byProperty: [...byProperty].map(([propertyId, s]) => ({ propertyId, currency: currencies.get(propertyId) ?? '', ...rounded(s) })),
+    // Splits and taxes add amounts across bills, so they are only given in one currency.
+    byAType: oneCurrency ? group((l) => l.aType, A_TYPE_LABELS) : [],
+    bySource: oneCurrency ? group((l) => l.source, SOURCE_LABELS) : [],
+    taxes: oneCurrency ? [...taxes.values()].map((t) => ({ ...t, amount: money(t.amount) })) : [],
+    bills: counted
+      .map((b) => {
+        const collected = money(collectedOf(b));
+        return {
+          id: b.id, number: b.number, propertyId: b.propertyId, currency: currencies.get(b.propertyId) ?? '', reservationId: b.reservationId,
+          reservationNumber: b.reservationNumber, hostName: b.hostName, functionDate: b.functionDate, status: b.status,
+          total: b.totals.total, collected, balance: money(b.totals.total - collected),
+        };
+      })
+      .sort((a, b) => a.functionDate.localeCompare(b.functionDate) || a.number.localeCompare(b.number)),
+  };
+}

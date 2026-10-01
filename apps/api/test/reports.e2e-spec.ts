@@ -109,8 +109,42 @@ describe('Reports and forecast', () => {
     expect(sheets.body.rows).toHaveLength(1);
     expect(sheets.body.rows[0]).toMatchObject({ hall: 'Roof Top Hall', functionType: 'Wedding', hostName: 'POSist' });
 
-    const revenue = await api.get(`reports/revenue?${range()}`).expect(200);
-    expect(revenue.body.available).toBe(false);
+  });
+
+  it('reports revenue from final bills only', async () => {
+    const api = as(host, token);
+    const today = new Date().toISOString().slice(0, 10);
+    const r = (await api.post('reservations', book({ status: 'enquiry', slots: [{ hallId: ids.roof, start: `${today}T00:00`, end: `${today}T04:00` }] })).expect(201)).body;
+    const put = (path: string, body: object) => t.http().put(`/api/${path}`).set('Host', host).auth(token, auth).send(body);
+    await put(`reservations/${r.id}/menu`, {
+      packages: [{ packageId: ids.pkg, pax: 100, choices: [ids.tikka] }], extras: [{ kind: 'menuItem', itemId: ids.dj, qty: 1 }],
+    }).expect(200);
+    await api.post(`reservations/${r.id}/receipts`, { amount: 30000, mode: 'upi' }).expect(201);
+    await api.post(`reservations/${r.id}/status`, { status: 'confirmed' }).expect(200);
+    await api.post(`reservations/${r.id}/status`, { status: 'inFunction' }).expect(200);
+    await api.post(`reservations/${r.id}/status`, { status: 'completed', actualPax: 110 }).expect(200);
+    const bill = (await api.post(`billing/reservations/${r.id}/draft`, {}).expect(201)).body;
+
+    // A draft bill is not revenue yet.
+    const before = await api.get(`reports/revenue?${range(today, today)}`).expect(200);
+    expect(before.body.bills).toHaveLength(0);
+
+    await api.post(`billing/bills/${bill.id}/finalise`, {}).expect(200);
+    await api.post(`billing/bills/${bill.id}/payments`, { amount: 50000, mode: 'card' }).expect(200);
+    const res = (await api.get(`reports/revenue?${range(today, today)}`).expect(200)).body;
+    // 110 pax billed (more than the 100 guaranteed) at 950, plus the DJ at 7,500; no taxes set up.
+    expect(res.total).toMatchObject({ bills: 1, taxable: 112000, taxTotal: 0, total: 112000, collected: 80000, balance: 32000 });
+    expect(res.currency).toBe('INR');
+    expect(res.byAType).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: 'package', label: 'Packages', taxable: 104500 }),
+      expect.objectContaining({ key: 'services', label: 'Services', taxable: 7500 }),
+    ]));
+    expect(res.bills[0]).toMatchObject({ reservationNumber: r.number, status: 'partiallySettled', total: 112000, balance: 32000 });
+
+    // Another tenant never sees these bills.
+    const other = await setUp('revenuehotel');
+    const theirs = await as(other.host, other.token).get(`reports/revenue?from=${today}&to=${today}`).expect(200);
+    expect(theirs.body.bills).toHaveLength(0);
   });
 
   it('covers every property when none is chosen', async () => {

@@ -63,4 +63,45 @@ describe('Reports', () => {
     expect(el.querySelector('tfoot')?.textContent).toContain('150');
     http.verify();
   });
+
+  it('shows revenue from final bills on the Revenue tab', async () => {
+    const fixture = TestBed.createComponent(Reports);
+    fixture.detectChanges();
+    const http = TestBed.inject(HttpTestingController);
+    http.expectOne((r) => r.url === '/api/masters/property').flush([{ id: 'p1', active: true, name: 'Prime Residency' }]);
+    await settle(fixture);
+    const req = http.expectOne((r) => r.url === '/api/reports/forecast');
+    req.flush(forecast(req.request.params.get('from')!));
+    await settle(fixture);
+    const el = fixture.nativeElement as HTMLElement;
+
+    [...el.querySelectorAll<HTMLButtonElement>('.tabs button')].find((b) => b.textContent?.includes('Revenue'))!.click();
+    const sum = { bills: 1, amount: 112000, discount: 0, taxable: 112000, taxTotal: 0, roundOff: 0, total: 112000, collected: 80000, balance: 32000 };
+    http.expectOne((r) => r.url === '/api/reports/revenue').flush({
+      from: '2030-07-01', to: '2030-07-31', propertyId: 'p1', properties: [], currency: 'INR', mixedCurrencies: false, total: sum,
+      byProperty: [{ propertyId: 'p1', currency: 'INR', ...sum }],
+      byAType: [{ key: 'package', label: 'Packages', taxable: 104500, tax: 0, total: 104500 }],
+      bySource: [{ key: 'package', label: 'Packages', taxable: 104500, tax: 0, total: 104500 }],
+      taxes: [],
+      bills: [{ id: 'b1', number: 'B/2030-31/000001', propertyId: 'p1', currency: 'INR', reservationId: 'r1', reservationNumber: 'R-000001',
+        hostName: 'Menon Family', functionDate: '2030-07-01', status: 'partiallySettled', total: 112000, collected: 80000, balance: 32000 }],
+    });
+    await settle(fixture);
+    expect(el.textContent).toContain('Revenue before tax (INR)');
+    expect(el.textContent).toContain('B/2030-31/000001');
+    expect(el.textContent).toContain('Part paid');
+    expect(el.querySelector('a[href="/operations/billing/b1"]')).not.toBeNull();
+
+    // With nothing billed there is no currency, so the label has no empty brackets.
+    fixture.componentInstance['load']();
+    http.expectOne((r) => r.url === '/api/reports/revenue').flush({
+      from: '2030-07-01', to: '2030-07-31', propertyId: 'p1', properties: [], currency: null, mixedCurrencies: false,
+      total: { ...sum, bills: 0, amount: 0, taxable: 0, total: 0, collected: 0, balance: 0 },
+      byProperty: [], byAType: [], bySource: [], taxes: [], bills: [],
+    });
+    await settle(fixture);
+    expect(el.textContent).toContain('Revenue before tax');
+    expect(el.textContent).not.toContain('()');
+    http.verify();
+  });
 });

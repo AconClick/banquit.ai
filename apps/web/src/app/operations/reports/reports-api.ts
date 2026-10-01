@@ -91,9 +91,40 @@ export interface FunctionSheets extends ReportHeader {
   }[];
 }
 
+export interface RevenueSum {
+  bills: number;
+  amount: number;
+  discount: number;
+  taxable: number;
+  taxTotal: number;
+  roundOff: number;
+  total: number;
+  collected: number;
+  balance: number;
+}
+
 export interface Revenue extends ReportHeader {
-  available: boolean;
-  message: string;
+  currency: string | null;
+  mixedCurrencies: boolean;
+  total: RevenueSum | null;
+  byProperty: (RevenueSum & { propertyId: string; currency: string })[];
+  byAType: { key: string; label: string; taxable: number; tax: number; total: number }[];
+  bySource: { key: string; label: string; taxable: number; tax: number; total: number }[];
+  taxes: { id: string; name: string; amount: number }[];
+  bills: {
+    id: string;
+    number: string;
+    propertyId: string;
+    currency: string;
+    reservationId: string;
+    reservationNumber: string;
+    hostName: string;
+    functionDate: string;
+    status: string;
+    total: number;
+    collected: number;
+    balance: number;
+  }[];
 }
 
 @Injectable({ providedIn: 'root' })
