@@ -2,6 +2,7 @@ import { DatePipe } from '@angular/common';
 import { Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { errorMessage } from '../../core/api.interceptor';
+import { roundTo } from '../../core/money';
 import { TenantService } from '../../core/tenant.service';
 import { MasterRecord, MastersStore } from '../../master/masters-store';
 import { BillingApi, BillingView, PAYMENT_MODES, money } from './billing-api';
@@ -157,7 +158,6 @@ export class BillPrint implements OnInit {
   protected readonly view = signal<BillingView | null>(null);
   protected readonly lookups = signal<Record<string, MasterRecord[]>>({});
   protected readonly error = signal<string | null>(null);
-  protected readonly money = money;
   protected readonly modeLabels = PAYMENT_MODES as Record<string, string>;
   protected readonly printedAt = new Date().toISOString();
   protected readonly tenantName = computed(() => this.tenants.tenant()?.name ?? '');
@@ -165,7 +165,9 @@ export class BillPrint implements OnInit {
   /** No bill yet, or asked for: the proforma. */
   protected readonly doc = computed(() => (this.docParam() === 'proforma' || !this.view()?.bill ? 'proforma' : 'bill'));
   protected readonly property = computed(() => this.lookups()['property']?.find((p) => p.id === this.view()?.booking.propertyId));
-  protected readonly currency = computed(() => String(this.property()?.['currency'] ?? ''));
+  protected readonly currency = computed(() => this.view()?.bill?.currency ?? this.view()?.currency ?? String(this.property()?.['currency'] ?? ''));
+  protected readonly decimals = computed(() => (this.doc() === 'bill' ? this.view()?.bill?.decimals : undefined) ?? this.view()?.decimals ?? 2);
+  protected readonly money = (n: number | null | undefined) => money(n, this.decimals());
   protected readonly title = computed(() => {
     if (this.doc() === 'proforma') return 'Proforma invoice';
     const s = this.view()?.bill?.status;
@@ -180,6 +182,7 @@ export class BillPrint implements OnInit {
   protected readonly lines = computed<PrintLine[]>(() => {
     const v = this.view();
     if (!v) return [];
+    const round2 = (n: number) => roundTo(n, this.decimals());
     if (this.doc() === 'proforma') {
       return v.proforma.lines.map((l) => ({
         label: l.label, qty: l.qty, rate: l.rate, amount: l.amount, discount: 0, taxable: l.taxable, tax: round2(l.total - l.taxable), total: l.total,
@@ -198,6 +201,7 @@ export class BillPrint implements OnInit {
 
   protected readonly totals = computed(() => {
     const v = this.view()!;
+    const round2 = (n: number) => roundTo(n, this.decimals());
     if (this.doc() === 'proforma') {
       const p = v.proforma;
       return { taxable: p.taxable, taxes: p.taxes, roundOff: p.roundOff, total: p.total, advances: p.advances, paid: 0, balance: round2(p.total - p.advances) };
@@ -225,5 +229,3 @@ export class BillPrint implements OnInit {
     window.print();
   }
 }
-
-const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;

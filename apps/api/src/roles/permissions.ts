@@ -4,7 +4,7 @@
  */
 export const PERMISSIONS = {
   operations: ['diary.view', 'reservations.manage', 'reservations.confirmWithoutAdvance', 'billing.manage', 'billing.approve', 'reports.view'],
-  master: ['roles.manage', 'users.manage', 'masters.manage', 'settings.manage'],
+  master: ['roles.manage', 'users.manage', 'masters.manage', 'settings.manage', 'billing.setup'],
 } as const;
 
 export type Activity = keyof typeof PERMISSIONS;

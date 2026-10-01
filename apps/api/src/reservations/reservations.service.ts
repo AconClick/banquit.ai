@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Error as MongooseError, Model, Types } from 'mongoose';
 import { MastersService } from '../masters/masters.service.js';
 import { PricingService } from '../pricing/pricing.service.js';
+import { roundTo } from '../pricing/money.js';
 import { BookingDetailsService, type MenuInput, type ReceiptInput } from './booking-details.service.js';
 import type { MasterRecordDocument } from '../masters/master-record.schema.js';
 import { addDays, fromMinutes, isDate, isLocalDateTime, toMinutes } from './local-time.js';
@@ -201,11 +202,11 @@ export class ReservationsService {
       await this.chargeCancellation(tenantId, r, opts.cancellationCharge, note);
     }
     if (to === 'confirmed') {
-      const { proforma, settings } = await this.booking.quote(tenantId, r);
-      const advance = this.booking.advance(r, proforma.total, settings);
+      const { proforma, settings, decimals } = await this.booking.quote(tenantId, r);
+      const advance = this.booking.advance(r, proforma.total, settings, decimals);
       if (advance.shortBy > 0) {
         if (!opts.canSkipAdvance) {
-          throw new BadRequestException(`Confirming needs an advance of ${advance.required.toFixed(2)} (${advance.percent}% of the proforma); ${advance.paid.toFixed(2)} is paid.`);
+          throw new BadRequestException(`Confirming needs an advance of ${advance.required.toFixed(decimals)} (${advance.percent}% of the proforma); ${advance.paid.toFixed(decimals)} is paid.`);
         }
         if (!note) throw new BadRequestException('Give a note to confirm without the full advance.');
       }
@@ -295,24 +296,24 @@ export class ReservationsService {
 
   /** Cancellation charge from the property's slabs, taken from advances first (open-questions.md, section 2). */
   private async chargeCancellation(tenantId: Types.ObjectId, r: ReservationDocument, override: number | undefined, note: string | undefined) {
-    const { proforma, settings } = await this.booking.quote(tenantId, r);
-    const preview = this.booking.cancellationPreview(r, proforma.total, settings, await this.masters.propertyToday(tenantId, r.propertyId));
+    const { proforma, settings, decimals } = await this.booking.quote(tenantId, r);
+    const preview = this.booking.cancellationPreview(r, proforma.total, settings, await this.masters.propertyToday(tenantId, r.propertyId), decimals);
     if (!preview) {
       if (override !== undefined && override > 0) throw new BadRequestException('This booking carries no cancellation charge.');
       if (r.receipts.length) {
-        const paid = this.booking.paid(r);
-        r.cancellation = { daysBefore: 0, percent: 0, computed: 0, ...this.booking.split(0, paid) };
+        const paid = this.booking.paid(r, decimals);
+        r.cancellation = { daysBefore: 0, percent: 0, computed: 0, ...this.booking.split(0, paid, decimals) };
       }
       return;
     }
     let charge = preview.computed;
     if (override !== undefined && override !== null) {
       if (typeof override !== 'number' || !Number.isFinite(override) || override < 0) throw new BadRequestException('Cancellation charge must be 0 or more.');
-      if (override > preview.computed) throw new BadRequestException(`The charge cannot be more than the slab amount (${preview.computed.toFixed(2)}).`);
+      if (override > preview.computed) throw new BadRequestException(`The charge cannot be more than the slab amount (${preview.computed.toFixed(decimals)}).`);
       if (override < preview.computed && !note) throw new BadRequestException('Give a note when reducing the cancellation charge.');
-      charge = Math.round(override * 100) / 100;
+      charge = roundTo(override, decimals);
     }
-    r.cancellation = { daysBefore: preview.daysBefore, percent: preview.percent, computed: preview.computed, ...this.booking.split(charge, this.booking.paid(r)) };
+    r.cancellation = { daysBefore: preview.daysBefore, percent: preview.percent, computed: preview.computed, ...this.booking.split(charge, this.booking.paid(r, decimals), decimals) };
   }
 
   async createBlock(tenantId: Types.ObjectId, userId: string, input: BlockInput) {

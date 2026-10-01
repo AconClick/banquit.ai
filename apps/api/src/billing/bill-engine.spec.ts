@@ -136,3 +136,32 @@ describe('calculateBill', () => {
     expect(busy.warnings[0]).toMatch(/130 guests came, more than the expected max of 120/);
   });
 });
+
+describe('three-decimal currencies', () => {
+  const vat10: TaxRate = { id: 'vat', name: 'VAT 10%', type: 'percentage', rate: 10 };
+
+  it('keeps fils for KWD, BHD and OMR instead of rounding to two decimals', () => {
+    const bhd = calculateBill({ roundTotal: false, decimals: 3, lines: [line({ qty: 3, rate: 1.234, taxes: [vat10] })] });
+    expect(bhd.lines[0]).toMatchObject({ amount: 3.702, taxable: 3.702, total: 4.072 });
+    expect(bhd.taxes).toEqual([{ id: 'vat', name: 'VAT 10%', amount: 0.37 }]);
+    expect(bhd.total).toBe(4.072);
+    // The same bill in a two-decimal currency.
+    expect(calculateBill({ roundTotal: false, lines: [line({ qty: 3, rate: 1.234, taxes: [vat10] })] }).total).toBe(4.07);
+  });
+
+  it('shares a bill discount to the fils and back-calculates inclusive rates to three decimals', () => {
+    const bill = calculateBill({
+      roundTotal: false, decimals: 3, billDiscount: { type: 'amount', value: 1.001, reason: 'x' },
+      lines: [line({ id: 'a', qty: 1, rate: 2.5, taxes: [] }), line({ id: 'b', qty: 1, rate: 2.5, taxInclusive: true, taxes: [vat10] })],
+    });
+    expect(bill.discount).toBe(1.001);
+    expect(bill.lines.map((l) => l.discount).reduce((s, d) => s + d, 0)).toBeCloseTo(1.001, 6);
+    expect(bill.lines[1].taxable + bill.lines[1].taxes[0].amount).toBeCloseTo(bill.lines[1].total, 6);
+    expect(bill.total).toBe(3.999);
+  });
+
+  it('rounds a three-decimal total to a whole dinar when the property rounds totals', () => {
+    const bill = calculateBill({ roundTotal: true, decimals: 3, lines: [line({ qty: 1, rate: 10.4, taxes: [vat10] })] });
+    expect(bill).toMatchObject({ total: 11, roundOff: -0.44 });
+  });
+});

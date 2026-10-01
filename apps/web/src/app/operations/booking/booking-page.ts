@@ -42,7 +42,8 @@ export class BookingPage implements OnInit {
   protected readonly labels = STATUS_LABELS;
   protected readonly aTypes = ATYPE_LABELS;
   protected readonly modes = Object.entries(SETTLEMENT_MODES) as [SettlementMode, string][];
-  protected readonly money = money;
+  /** Amounts to the property's currency decimals (3 for KWD). */
+  protected readonly money = (n: number | null | undefined) => money(n, this.d()?.decimals ?? this.currency());
 
   protected packages: PackageDraft[] = [];
   protected extras: ExtraDraft[] = [];

@@ -1,4 +1,7 @@
 import { financialYear } from '../src/billing/billing.service.js';
+import { getModelToken } from '@nestjs/mongoose';
+import type { Model } from 'mongoose';
+import { Bill } from '../src/billing/bill.schema.js';
 import { startApp } from './helpers.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -69,10 +72,10 @@ describe('Banquet billing: draft, final bill and settlement', () => {
     ids.cgst = await master('tax', { description: 'CGST 2.5%', taxType: 'percentage', rate: 2.5, validFrom: '2026-01-01', propertyIds: [ids.p1] });
     ids.sgst = await master('tax', { description: 'SGST 2.5%', taxType: 'percentage', rate: 2.5, validFrom: '2026-01-01', propertyIds: [ids.p1] });
     ids.gst18 = await master('tax', { description: 'GST 18%', taxType: 'percentage', rate: 18, validFrom: '2026-01-01', propertyIds: [ids.p1] });
-    const head = await master('incomeExpenseHead', { code: 'FB', description: 'Food & Beverage' });
+    const head = ids.head = await master('incomeExpenseHead', { code: 'FB', description: 'Food & Beverage' });
     const unit = await master('unit', { description: 'Plate', shortDescription: 'PLT' });
     const main = await master('mainGroup', { code: 'FOOD', description: 'Food' });
-    const starters = await master('subGroup', { code: 'ST', description: 'Starters', mainGroupId: main });
+    const starters = ids.starters = await master('subGroup', { code: 'ST', description: 'Starters', mainGroupId: main });
     const item = (code: string, description: string, over: object = {}) => master('menuItem', {
       code, description, subGroupId: starters, unitId: unit, defaultRate: 0, aType: 'package', incomeExpenseHeadId: head, ...over,
     });
@@ -221,6 +224,115 @@ describe('Banquet billing: draft, final bill and settlement', () => {
     expect(view.voided).toEqual([{ id: draft.id, number: fin.number, voidReason: 'Wrong billing instructions' }]);
     const list = (await ops.get(`billing/bills?propertyId=${ids.p1}&status=settled`).expect(200)).body;
     expect(list.map((b: { number: string }) => b.number).sort()).toEqual([fin2.number, `B/${financialYear(today())}/000001`].sort());
+  });
+
+  it('numbers bills from the property’s Series Setup', async () => {
+    const fy = financialYear(today());
+    const setup = (await m.get(`billing/setup/${ids.p1}`).expect(200)).body;
+    expect(setup).toMatchObject({
+      fyStartMonth: 4, financialYear: fy, currency: 'INR', decimals: 2,
+      series: { bill: { prefix: 'B/{FY}/', digits: 6, resetYearly: true }, creditNote: { prefix: 'CN/{FY}/', digits: 6, resetYearly: true } },
+      next: { bill: { seq: 4, number: `B/${fy}/000004` }, creditNote: { seq: 1 } },
+    });
+    // Operations users bill, but only the Master panel changes the series.
+    await ops.get(`billing/setup/${ids.p1}`).expect(403);
+
+    const bad = await m.put(`billing/setup/${ids.p1}`, {
+      fyStartMonth: 13, series: { bill: { prefix: 'INV/', digits: 6, resetYearly: true }, creditNote: { prefix: 'INV/', digits: 6, resetYearly: false } },
+    }).expect(400);
+    expect(bad.body.message).toEqual([
+      'Choose the month the financial year starts.',
+      "Bills: put {FY} or {FYSHORT} in the prefix, or the restarted numbers repeat last year's.",
+      'Bills and credit notes need different prefixes.',
+    ]);
+    const low = await m.put(`billing/setup/${ids.p1}`, { nextNumbers: { bill: 2 } }).expect(400);
+    expect(low.body.message).toEqual(['Bills: numbers up to 3 are already used this year, so the next is at least 4.']);
+
+    // Moving from another system mid-year: a new prefix, and carry on from number 101.
+    const saved = (await m.put(`billing/setup/${ids.p1}`, {
+      series: { bill: { prefix: 'KOC/{FYSHORT}/', digits: 4, resetYearly: true } }, nextNumbers: { bill: 101 },
+    }).expect(200)).body;
+    const short = `${fy.slice(2, 4)}-${fy.slice(5)}`;
+    expect(saved.next.bill).toEqual({ seq: 101, number: `KOC/${short}/0101` });
+
+    const r3 = await confirmedBooking({ from: '07:00', to: '09:00', pax: 5, advance: 5000 });
+    await complete(r3, 5);
+    const draft = (await ops.post(`billing/reservations/${r3}/draft`, {}).expect(201)).body;
+    const fin = (await ops.post(`billing/bills/${draft.id}/finalise`, {}).expect(200)).body;
+    expect(fin.number).toBe(`KOC/${short}/0101`);
+    expect((await m.get(`billing/setup/${ids.p1}`).expect(200)).body.next.bill.number).toBe(`KOC/${short}/0102`);
+  });
+
+  it('bills a dinar property to three decimals, from the proforma to the last fils', async () => {
+    const company = await master('company', { name: 'Gulf Group', city: 'Kuwait City', state: 'Al Asimah', country: 'Kuwait' });
+    const p2 = await master('property', { name: 'Gulf Pearl', companyId: company, city: 'Kuwait City', state: 'Al Asimah', country: 'Kuwait', currency: 'KWD', timeZone: 'Asia/Kuwait' });
+    const hall = await master('hall', { description: 'Pearl Ballroom', propertyId: p2, capacity: 200, areaSqFt: 2000 });
+    const levy = await master('tax', { description: 'Service levy 5%', taxType: 'percentage', rate: 5, validFrom: '2026-01-01', propertyIds: [p2] });
+    const pkg = await master('package', {
+      code: 'KWSET', description: 'Kuwaiti Set Menu', ratePerPax: 12.345, taxInclusive: false, propertyIds: [p2],
+      incomeExpenseHeadId: ids.head, groups: [{ subGroupId: ids.starters, min: 1, max: 1, itemIds: [ids.tikka] }],
+    });
+    await m.put(`properties/${p2}/settings`, { roundTotal: false, advancePercent: 10, defaultTaxIds: { package: [levy], alacarte: [levy], services: [levy] } }).expect(200);
+    expect((await m.get(`billing/setup/${p2}`).expect(200)).body).toMatchObject({ currency: 'KWD', decimals: 3 });
+
+    const r = await ops.post('reservations', {
+      propertyId: p2, status: 'enquiry', hostName: 'Al-Sabah Family', phone: '+96590000111', functionTypeId: ids.wedding,
+      guaranteedPax: 7, expectedMaxPax: 10, slots: [{ hallId: hall, start: `${today()}T12:00`, end: `${today()}T15:00` }],
+    }).expect(201);
+    await ops.put(`reservations/${r.body.id}/menu`, { packages: [{ packageId: pkg, pax: 7, choices: [ids.tikka] }], extras: [] }).expect(200);
+    // 7 × 12.345 = 86.415, levy 4.321 (4.32075 rounded to the fils): 90.736.
+    const details = (await ops.get(`reservations/${r.body.id}/details`).expect(200)).body;
+    expect(details.proforma).toMatchObject({ taxable: 86.415, taxTotal: 4.321, total: 90.736 });
+    expect(details.advance).toMatchObject({ required: 9.074 });
+    await ops.post(`reservations/${r.body.id}/receipts`, { amount: 10.0006, mode: 'cash' }).expect(201);
+    await ops.post(`reservations/${r.body.id}/status`, { status: 'confirmed' }).expect(200);
+    await complete(r.body.id, 8);
+
+    const draft = (await ops.post(`billing/reservations/${r.body.id}/draft`, {}).expect(201)).body;
+    expect(draft).toMatchObject({ currency: 'KWD', decimals: 3, advances: 10.001 });
+    const saved = (await ops.put(`billing/bills/${draft.id}`, {
+      lines: [{ id: draft.lines[0].id, source: 'package', actualPax: 8 }, { source: 'running', aType: 'services', label: 'Valet', qty: 1, rate: 1.2346 }],
+    }).expect(200)).body;
+    // 8 × 12.345 = 98.76 + levy 4.938; valet 1.235 (rate kept to the fils) + 0.062.
+    expect(saved.lines.map((l: { total: number }) => l.total)).toEqual([103.698, 1.297]);
+    const fin = (await ops.post(`billing/bills/${draft.id}/finalise`, {}).expect(200)).body;
+    expect(fin).toMatchObject({ number: `B/${financialYear(today())}/000001`, total: 104.995, balance: 94.994 });
+    const over = await ops.post(`billing/bills/${draft.id}/payments`, { amount: 95, mode: 'card' }).expect(400);
+    expect(over.body.message).toEqual(['The balance is 94.994; take no more than that.']);
+    const paid = (await ops.post(`billing/bills/${draft.id}/payments`, { amount: 94.994, mode: 'card' }).expect(200)).body;
+    expect(paid).toMatchObject({ status: 'settled', balance: 0 });
+    const list = (await ops.get(`billing/bills?propertyId=${p2}`).expect(200)).body;
+    expect(list[0]).toMatchObject({ currency: 'KWD', total: 104.995, balance: 0 });
+  });
+
+  it('touches updatedAt on every bill change, so cached reports know to refresh', async () => {
+    const r4 = await confirmedBooking({ from: '22:00', to: '23:00', pax: 3, advance: 3000 });
+    await complete(r4, 3);
+    const stamps: number[] = [];
+    const stamp = async (id: string) => {
+      const doc = (await t.app.get<Model<Bill>>(getModelToken(Bill.name)).findById(id).lean()) as { updatedAt: Date };
+      stamps.push(new Date(doc.updatedAt).getTime());
+    };
+    const draft = (await ops.post(`billing/reservations/${r4}/draft`, {}).expect(201)).body;
+    await stamp(draft.id);
+    for (const step of [
+      () => ops.put(`billing/bills/${draft.id}`, { lines: [{ id: draft.lines[0].id, source: 'package', actualPax: 3 }] }).expect(200),
+      () => ops.post(`billing/bills/${draft.id}/refresh`, {}).expect(200),
+      () => ops.post(`billing/bills/${draft.id}/finalise`, {}).expect(200),
+      () => ops.post(`billing/bills/${draft.id}/payments`, { kind: 'refund', amount: 150, mode: 'cash' }).expect(200),
+    ]) {
+      await new Promise((r) => setTimeout(r, 5));
+      await step();
+      await stamp(draft.id);
+    }
+    const other = await confirmedBooking({ from: '23:00', to: '23:30', pax: 1, advance: 1000 });
+    const v = (await ops.post(`billing/reservations/${other}/draft`, {}).expect(201)).body;
+    await stamp(v.id);
+    await new Promise((r) => setTimeout(r, 5));
+    await ops.post(`billing/bills/${v.id}/void`, { reason: 'Test' }).expect(200);
+    await stamp(v.id);
+    for (let i = 1; i < 5; i++) expect(stamps[i]).toBeGreaterThan(stamps[i - 1]);
+    expect(stamps[6]).toBeGreaterThan(stamps[5]);
   });
 
   it('works out the financial year from the date', () => {

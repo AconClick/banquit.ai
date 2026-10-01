@@ -75,7 +75,7 @@ export class BookingPanel implements OnInit {
   protected pendingActualPax: number | null = null;
   /** Proforma, advance and cancellation figures, loaded when a status change needs them. */
   protected readonly details = signal<BookingDetails | null>(null);
-  protected readonly money = money;
+  protected readonly money = (n: number | null | undefined) => money(n, this.details()?.decimals ?? 2);
   private changed = false;
   protected form: Form = this.blank();
 

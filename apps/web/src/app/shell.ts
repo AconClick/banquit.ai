@@ -70,6 +70,7 @@ import { MastersStore } from './master/masters-store';
           <h3>Per property</h3>
           <a routerLink="/master/rates" routerLinkActive="active">Rate &amp; Tax Mapping</a>
           <a routerLink="/master/property-settings" routerLinkActive="active">Property Settings</a>
+          <a routerLink="/master/billing-setup" routerLinkActive="active">Billing Setup</a>
           @if (!session.support()) {
             <h3>Security</h3>
             <a routerLink="/master/support-access" routerLinkActive="active">Support Access</a>

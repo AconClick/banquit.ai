@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { Reservation } from '../diary/diary-api';
+import { formatMoney } from '../../core/money';
 
 export type AType = 'package' | 'alacarte' | 'services';
 export type SettlementMode = 'cash' | 'card' | 'upi' | 'bankTransfer' | 'cheque' | 'other';
@@ -41,6 +42,8 @@ export interface BookingDetails extends Reservation {
   extras: { kind: 'menuItem' | 'modifier'; itemId: string; name: string; aType: AType; qty: number; rate: number; taxInclusive: boolean; note: string }[];
   receipts: { number: string; date: string; amount: number; mode: SettlementMode; reference: string; at: string }[];
   proforma: Proforma;
+  /** Decimals of the property's currency: 3 for KWD. */
+  decimals: number;
   advance: { percent: number; required: number; paid: number; shortBy: number; secondInstalment: { amount: number; dueDate: string } | null };
   cancellation: CancellationFigures | null;
   cancellationPreview: CancellationFigures | null;
@@ -73,6 +76,5 @@ export class BookingApi {
     firstValueFrom(this.http.post<BookingDetails>(`/api/reservations/${id}/receipts`, input));
 }
 
-/** Money with two decimals in the viewer's number format; the currency code is shown separately. */
-export const money = (n: number | null | undefined) =>
-  (n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** Money to the currency's decimals (core/money.ts) in the viewer's number format; the currency code is shown separately. */
+export const money = (n: number | null | undefined, decimalsOrCurrency: number | string | null = 2) => formatMoney(n ?? 0, decimalsOrCurrency);

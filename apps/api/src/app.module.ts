@@ -6,6 +6,8 @@ import { AuthController } from './auth/auth.controller.js';
 import { AuthGuard } from './auth/auth.guard.js';
 import { AuthService } from './auth/auth.service.js';
 import { Bill, BillSchema } from './billing/bill.schema.js';
+import { BillingSetup, BillingSetupSchema } from './billing/billing-setup.schema.js';
+import { BillingSetupService } from './billing/billing-setup.service.js';
 import { BillingController } from './billing/billing.controller.js';
 import { BillingService } from './billing/billing.service.js';
 import { BOOKING_SOURCE, ReservationBookingSource } from './billing/booking-source.js';
@@ -52,6 +54,7 @@ import { UsersService } from './users/users.service.js';
       { name: PropertyRate.name, schema: PropertyRateSchema },
       { name: PropertySettings.name, schema: PropertySettingsSchema },
       { name: Bill.name, schema: BillSchema },
+      { name: BillingSetup.name, schema: BillingSetupSchema },
       { name: SupportUser.name, schema: SupportUserSchema },
       { name: SupportSession.name, schema: SupportSessionSchema },
     ]),
@@ -61,7 +64,7 @@ import { UsersService } from './users/users.service.js';
   controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController,
     SupportConsoleController, SupportSessionController, SupportAccessController, SupportStaffController],
   providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, AuthGuard,
-    BillingService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
+    BillingService, BillingSetupService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

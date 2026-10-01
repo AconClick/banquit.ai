@@ -44,6 +44,7 @@ export const routes: Routes = [
       { path: 'data/:kind', component: MasterPage, title: 'Master setup · Banquet.ai' },
       { path: 'rates', component: RateMappingPage, title: 'Rate & Tax Mapping · Banquet.ai' },
       { path: 'property-settings', component: PropertySettingsPage, title: 'Property Settings · Banquet.ai' },
+      { path: 'billing-setup', loadComponent: () => import('./master/billing-setup-page').then((m) => m.BillingSetupPage), title: 'Billing Setup · Banquet.ai' },
       { path: 'support-access', loadComponent: () => import('./master/support-access-page').then((m) => m.SupportAccessPage), title: 'Support Access · Banquet.ai' },
     ],
   },

@@ -40,6 +40,7 @@ export const PERMISSION_LABELS: Record<string, string> = {
   'users.manage': 'User management',
   'masters.manage': 'Master data (company, property, halls, menus, taxes)',
   'settings.manage': 'Master settings',
+  'billing.setup': 'Billing setup: bill numbering, print layout, GST',
   'diary.view': 'Reservation Diary',
   'reservations.manage': 'Create and change reservations',
   'reservations.confirmWithoutAdvance': 'Confirm bookings without the full advance (with a note)',
