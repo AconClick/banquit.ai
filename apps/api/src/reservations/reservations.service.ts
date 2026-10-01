@@ -5,7 +5,7 @@ import { MastersService } from '../masters/masters.service.js';
 import { PricingService } from '../pricing/pricing.service.js';
 import { BookingDetailsService, type MenuInput, type ReceiptInput } from './booking-details.service.js';
 import type { MasterRecordDocument } from '../masters/master-record.schema.js';
-import { addDays, isDate, isLocalDateTime, toMinutes } from './local-time.js';
+import { addDays, fromMinutes, isDate, isLocalDateTime, toMinutes } from './local-time.js';
 import {
   Counter,
   HallBlock,
@@ -131,7 +131,7 @@ export class ReservationsService {
     const hallIds = halls.map((h) => h.id as string);
     const [reservations, blocks] = await Promise.all([
       this.reservations.find({
-        tenantId, propertyId, status: { $ne: 'lost' }, 'slots.start': { $lt: end }, 'slots.end': { $gt: start },
+        tenantId, propertyId, status: { $ne: 'lost' }, slots: { $elemMatch: { end: { $gt: start }, start: { $lt: end } } },
       }).sort({ number: 1 }),
       this.blocks.find({ tenantId, active: true, hallId: { $in: hallIds }, start: { $lt: end }, end: { $gt: start } }),
     ]);
@@ -417,7 +417,12 @@ export class ReservationsService {
       const overlaps = (s: { start: string; end: string }) => toMinutes(s.start) < to && toMinutes(s.end) > from;
       const name = String(hall.values.description);
 
-      const filter: Record<string, unknown> = { tenantId, status: { $in: HOLDING_STATUSES }, 'slots.hallId': slot.hallId };
+      const filter: Record<string, unknown> = {
+        tenantId,
+        status: { $in: HOLDING_STATUSES },
+        // Only bookings near this slot, not the hall's whole history.
+        slots: { $elemMatch: { hallId: slot.hallId, end: { $gt: fromMinutes(from) }, start: { $lt: fromMinutes(to) } } },
+      };
       if (excludeId) filter._id = { $ne: excludeId };
       for (const other of await this.reservations.find(filter)) {
         const clash = other.slots.find((s) => s.hallId === slot.hallId && overlaps(s));
@@ -428,7 +433,7 @@ export class ReservationsService {
           );
         }
       }
-      const blocks = await this.blocks.find({ tenantId, active: true, hallId: slot.hallId });
+      const blocks = await this.blocks.find({ tenantId, active: true, hallId: slot.hallId, start: { $lt: fromMinutes(to) }, end: { $gt: fromMinutes(from) } });
       const block = blocks.find(overlaps);
       if (block) {
         throw new ConflictException(`${name} is blocked ${block.start.replace('T', ' ')} to ${block.end.replace('T', ' ')}.`);

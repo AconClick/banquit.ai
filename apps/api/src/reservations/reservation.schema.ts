@@ -222,7 +222,10 @@ export class Reservation {
 export type ReservationDocument = HydratedDocument<Reservation>;
 export const ReservationSchema = SchemaFactory.createForClass(Reservation);
 ReservationSchema.index({ tenantId: 1, number: 1 }, { unique: true });
-ReservationSchema.index({ tenantId: 1, 'slots.hallId': 1, 'slots.start': 1 });
+// Time-range lookups match one slot with $elemMatch, so both ends of the range bound the index scan.
+ReservationSchema.index({ tenantId: 1, 'slots.hallId': 1, 'slots.end': 1, 'slots.start': 1 });
+ReservationSchema.index({ tenantId: 1, propertyId: 1, 'slots.end': 1, 'slots.start': 1 });
+ReservationSchema.index({ tenantId: 1, propertyId: 1, createdAt: 1 });
 
 /** Hall closed for everyone (maintenance, fumigation, etc.). Not a reservation. */
 @Schema({ timestamps: true })

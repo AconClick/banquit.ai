@@ -1,5 +1,5 @@
 import type { ReservationStatus } from '../reservations/reservation.schema.js';
-import { addDays, toMinutes } from '../reservations/local-time.js';
+import { addDays, addMinutes, toMinutes } from '../reservations/local-time.js';
 
 /**
  * Pure report calculations. The service loads tenant-scoped records and hands them here,
@@ -62,6 +62,16 @@ export function overlapMinutes(slot: { start: string; end: string }, start: stri
   return a < b ? toMinutes(b) - toMinutes(a) : 0;
 }
 
+/** The dates from `from` to `to` (inclusive) that the slot touches, without walking the whole range. */
+export function slotDates(slot: { start: string; end: string }, from: string, to: string): string[] {
+  const first = slot.start.slice(0, 10) > from ? slot.start.slice(0, 10) : from;
+  const lastTouched = addMinutes(slot.end, -1).slice(0, 10);
+  const last = lastTouched < to ? lastTouched : to;
+  const out: string[] = [];
+  for (let d = first; d <= last; d = addDays(d, 1)) out.push(d);
+  return out;
+}
+
 /** The function's date: the day its first hall slot starts. */
 export function functionDate(r: Pick<ReservationLike, 'slots'>): string {
   return r.slots.map((s) => s.start).sort()[0].slice(0, 10);
@@ -100,26 +110,33 @@ export function bookingsByStatus(reservations: ReservationLike[], from: string, 
 export function hallOccupancy(halls: HallLike[], reservations: ReservationLike[], blocks: BlockLike[], from: string, to: string) {
   const dates = datesBetween(from, to);
   const { start, end } = rangeOf(from, to);
+  // Slots grouped by hall first, so the work grows with the bookings, not bookings × halls × days.
+  const slotsByHall = new Map<string, { id: string; confirmed: boolean; slot: { start: string; end: string } }[]>();
+  for (const r of reservations) {
+    const confirmed = CONFIRMED_STATUSES.includes(r.status);
+    if (!confirmed && r.status !== 'provisional') continue;
+    for (const s of r.slots) {
+      const list = slotsByHall.get(s.hallId) ?? [];
+      list.push({ id: r.id, confirmed, slot: s });
+      slotsByHall.set(s.hallId, list);
+    }
+  }
+  const blockedByHall = new Map<string, number>();
+  for (const b of blocks) blockedByHall.set(b.hallId, (blockedByHall.get(b.hallId) ?? 0) + overlapMinutes(b, start, end));
+
   return halls.map((hall) => {
     let confirmedMin = 0;
     let provisionalMin = 0;
-    let blockedMin = 0;
     const functions = new Set<string>();
     const usedDays = new Set<string>();
-    for (const r of reservations) {
-      const confirmed = CONFIRMED_STATUSES.includes(r.status);
-      if (!confirmed && r.status !== 'provisional') continue;
-      for (const s of r.slots) {
-        if (s.hallId !== hall.id) continue;
-        const m = overlapMinutes(s, start, end);
-        if (!m) continue;
-        functions.add(r.id);
-        if (confirmed) confirmedMin += m;
-        else provisionalMin += m;
-        for (const d of dates) if (overlapMinutes(s, `${d}T00:00`, `${addDays(d, 1)}T00:00`)) usedDays.add(d);
-      }
+    for (const { id, confirmed, slot } of slotsByHall.get(hall.id) ?? []) {
+      const m = overlapMinutes(slot, start, end);
+      if (!m) continue;
+      functions.add(id);
+      if (confirmed) confirmedMin += m;
+      else provisionalMin += m;
+      for (const d of slotDates(slot, from, to)) usedDays.add(d);
     }
-    for (const b of blocks) if (b.hallId === hall.id) blockedMin += overlapMinutes(b, start, end);
     return {
       hallId: hall.id,
       hallName: hall.name,
@@ -127,7 +144,7 @@ export function hallOccupancy(halls: HallLike[], reservations: ReservationLike[]
       functions: functions.size,
       confirmedHours: hours(confirmedMin),
       provisionalHours: hours(provisionalMin),
-      blockedHours: hours(blockedMin),
+      blockedHours: hours(blockedByHall.get(hall.id) ?? 0),
       daysUsed: usedDays.size,
       daysInRange: dates.length,
       occupancyPercent: percent(usedDays.size, dates.length),
@@ -226,7 +243,7 @@ export function availabilityForecast(halls: HallLike[], reservations: Reservatio
   for (const h of halls) for (const d of dates) cells.set(key(h.id, d), { state: 'free', heldHours: 0, bookings: [] });
 
   const mark = (hallId: string, slot: { start: string; end: string }, state: CellState, number?: string) => {
-    for (const d of dates) {
+    for (const d of slotDates(slot, from, to)) {
       const cell = cells.get(key(hallId, d));
       if (!cell) continue;
       const m = overlapMinutes(slot, `${d}T00:00`, `${addDays(d, 1)}T00:00`);

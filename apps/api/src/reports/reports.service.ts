@@ -16,6 +16,8 @@ export interface ReportQuery {
 
 const MAX_REPORT_DAYS = 366;
 const MAX_FORECAST_DAYS = 62;
+/** What the counting reports read; leaving out history and menus keeps a chain's yearly report light. */
+const SUMMARY_FIELDS = { number: 1, status: 1, propertyId: 1, hostName: 1, functionTypeId: 1, guaranteedPax: 1, expectedMaxPax: 1, actualPax: 1, slots: 1 } as const;
 
 /**
  * Read-only reports over reservations and hall blocks. Every query is filtered by the tenant,
@@ -32,13 +34,13 @@ export class ReportsService {
 
   async bookingsByStatus(tenantId: Types.ObjectId, q: ReportQuery) {
     const scope = await this.scope(tenantId, q, MAX_REPORT_DAYS);
-    const reservations = await this.reservationsInRange(tenantId, scope);
+    const reservations = await this.reservationsInRange(tenantId, scope, SUMMARY_FIELDS);
     return { ...this.header(scope), ...math.bookingsByStatus(reservations, scope.from, scope.to) };
   }
 
   async hallOccupancy(tenantId: Types.ObjectId, q: ReportQuery) {
     const scope = await this.scope(tenantId, q, MAX_REPORT_DAYS);
-    const [reservations, blocks] = await Promise.all([this.reservationsInRange(tenantId, scope), this.blocksInRange(tenantId, scope)]);
+    const [reservations, blocks] = await Promise.all([this.reservationsInRange(tenantId, scope, SUMMARY_FIELDS), this.blocksInRange(tenantId, scope)]);
     return { ...this.header(scope), rows: math.hallOccupancy(scope.halls, reservations, blocks, scope.from, scope.to) };
   }
 
@@ -82,6 +84,8 @@ export class ReportsService {
         status: { $in: [...math.REVENUE_BILL_STATUSES] },
         functionDate: { $gte: scope.from, $lte: scope.to },
       })
+      // The stored totals carry what the report needs; the editable lines and history are not read.
+      .select({ lines: 0, history: 0, taxRates: 0 })
       .lean();
     const bills = docs
       .filter((b) => b.totals)
@@ -129,15 +133,16 @@ export class ReportsService {
   }
 
   /** Reservations with any hall slot touching the range. */
-  private async reservationsInRange(tenantId: Types.ObjectId, scope: { from: string; to: string; propertyIds: string[] }) {
+  private async reservationsInRange(tenantId: Types.ObjectId, scope: { from: string; to: string; propertyIds: string[] }, fields: Record<string, 0 | 1> = { receipts: 0, notes: 0, cancellation: 0 }) {
     const start = `${scope.from}T00:00`;
     const end = `${addDays(scope.to, 1)}T00:00`;
-    // Without $elemMatch this can match a start and an end from different slots, so slots are checked again below.
     const docs = await this.reservations
-      .find({ tenantId, propertyId: { $in: scope.propertyIds }, 'slots.start': { $lt: end }, 'slots.end': { $gt: start } })
-      .sort({ number: 1 })
+      .find({ tenantId, propertyId: { $in: scope.propertyIds }, slots: { $elemMatch: { end: { $gt: start }, start: { $lt: end } } } })
+      .select(fields)
       .lean();
-    return docs.map(toLike).filter((r) => r.slots.some((s) => s.start < end && s.end > start));
+    // Sorted here: asking the database to sort by number makes it walk every booking of the tenant.
+    docs.sort((a, b) => (a.number < b.number ? -1 : a.number > b.number ? 1 : 0));
+    return docs.map(toLike);
   }
 
   private async blocksInRange(tenantId: Types.ObjectId, scope: { from: string; to: string; halls: { id: string }[] }) {
@@ -168,7 +173,7 @@ function toLike(r: LeanReservation): math.ReservationLike {
     expectedMaxPax: r.expectedMaxPax,
     actualPax: r.actualPax ?? null,
     slots: r.slots.map((s) => ({ hallId: s.hallId, start: s.start, end: s.end })),
-    history: r.history.map((h) => ({ from: h.from, to: h.to, at: h.at })),
+    history: (r.history ?? []).map((h) => ({ from: h.from, to: h.to, at: h.at })),
     createdAt: r.createdAt,
     packages: (r.packages ?? []).map((p) => ({ packageId: p.packageId, name: p.name, pax: p.pax, choices: [...p.choices] })),
     extras: (r.extras ?? []).map((e) => ({ itemId: e.itemId, name: e.name, aType: e.aType, qty: e.qty })),
