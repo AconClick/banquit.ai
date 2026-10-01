@@ -43,4 +43,5 @@ export const PERMISSION_LABELS: Record<string, string> = {
   'diary.view': 'Reservation Diary',
   'reservations.manage': 'Create and change reservations',
   'billing.manage': 'Billing and settlement',
+  'reports.view': 'Reports and availability forecast',
 };

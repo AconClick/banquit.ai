@@ -1,12 +1,17 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, OnApplicationBootstrap } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Role, RoleDocument } from './role.schema.js';
 import { ALL_PERMISSIONS, BUILT_IN_ROLES } from './permissions.js';
 
 @Injectable()
-export class RolesService {
+export class RolesService implements OnApplicationBootstrap {
   constructor(@InjectModel(Role.name) private readonly roles: Model<Role>) {}
+
+  /** Built-in roles always hold every permission, including ones added by later releases. */
+  async onApplicationBootstrap() {
+    await this.roles.updateMany({ builtIn: true }, { $set: { permissions: ALL_PERMISSIONS } });
+  }
 
   /** Creates the built-in Enterprise Admin and Implementation roles; safe to call twice. */
   async ensureBuiltIns(tenantId: Types.ObjectId) {
