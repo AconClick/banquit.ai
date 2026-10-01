@@ -1,5 +1,5 @@
 import { financialYear } from '../src/billing/billing.service.js';
-import { startApp } from './helpers.js';
+import { startApp, tokenOf } from './helpers.js';
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -14,10 +14,10 @@ describe('Banquet billing: draft, final bill and settlement', () => {
   async function use(activity: 'master' | 'operations') {
     if (panel === activity) return;
     const res = await t.http().post('/api/auth/activity').set('Host', host).auth(token, auth).send({ activity }).expect(200);
-    if (activity === 'operations') token = res.body.token;
+    if (activity === 'operations') token = tokenOf(res);
     else {
       const sms = [...t.outbox].reverse().find((msg) => /Master access/.test(msg.body))!;
-      token = (await t.http().post('/api/auth/otp/verify').set('Host', host).auth(token, auth).send({ code: t.otpIn(sms.body) }).expect(200)).body.token;
+      token = tokenOf(await t.http().post('/api/auth/otp/verify').set('Host', host).auth(token, auth).send({ code: t.otpIn(sms.body) }).expect(200));
     }
     panel = activity;
   }
@@ -194,9 +194,9 @@ describe('Banquet billing: draft, final bill and settlement', () => {
     await m.post('users', { userId: 'cashier1', firstName: 'Ravi', email: 'ravi@billhotel.test', roleId: role.id }).expect(201);
     const first = await t.http().post('/api/auth/login').set('Host', host)
       .send({ userId: 'cashier1', password: t.passwordIn(t.lastMessage('ravi@billhotel.test').body) }).expect(200);
-    const changed = await t.http().post('/api/auth/change-password').set('Host', host).auth(first.body.token, auth)
+    const changed = await t.http().post('/api/auth/change-password').set('Host', host).auth(tokenOf(first), auth)
       .send({ currentPassword: t.passwordIn(t.lastMessage('ravi@billhotel.test').body), newPassword: 'Ravi2026xx' }).expect(200);
-    const cashier = (await t.http().post('/api/auth/activity').set('Host', host).auth(changed.body.token, auth).send({ activity: 'operations' }).expect(200)).body.token;
+    const cashier = tokenOf(await t.http().post('/api/auth/activity').set('Host', host).auth(tokenOf(changed), auth).send({ activity: 'operations' }).expect(200));
     await t.http().post(`/api/billing/bills/${draft.id}/finalise`).set('Host', host).auth(cashier, auth).send({}).expect(403);
     await t.http().get(`/api/billing/bills/${draft.id}`).set('Host', host).auth(cashier, auth).expect(200);
 

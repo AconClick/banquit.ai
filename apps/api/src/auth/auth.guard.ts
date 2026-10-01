@@ -7,10 +7,11 @@ import { authRules } from '../config.js';
 import type { AppRequest } from '../common/request-context.js';
 import { Role } from '../roles/role.schema.js';
 import { PERMISSIONS, type Activity, type Permission } from '../roles/permissions.js';
-import { SupportSession } from '../support/support.schema.js';
+import { SupportSession, SupportUser } from '../support/support.schema.js';
 import { isExpired, supportIdentity, type SupportSessionTokenPayload } from '../support/support.service.js';
 import { User, type UserDocument } from '../users/user.schema.js';
 import type { RoleDocument } from '../roles/role.schema.js';
+import { CSRF_HEADER, requestToken } from './session-cookie.js';
 
 export interface TokenPayload {
   sub: string;
@@ -33,6 +34,8 @@ export const NotForSupport = () => SetMetadata(NOT_FOR_SUPPORT_KEY, true);
 /** A read-only support session may still call this route (e.g. to switch mode or leave). */
 export const SupportReadOk = () => SetMetadata(SUPPORT_READ_OK_KEY, true);
 
+const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+
 export const SESSION_MESSAGES = {
   replaced: 'You were logged out because this user signed in elsewhere.',
   idle: 'Your session expired after inactivity. Please log in again.',
@@ -46,12 +49,19 @@ export class AuthGuard implements CanActivate {
     @InjectModel(User.name) private readonly users: Model<User>,
     @InjectModel(Role.name) private readonly roles: Model<Role>,
     @InjectModel(SupportSession.name) private readonly supportSessions: Model<SupportSession>,
+    @InjectModel(SupportUser.name) private readonly supportStaff: Model<SupportUser>,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const req = ctx.switchToHttp().getRequest<AppRequest>();
-    const token = req.header('authorization')?.replace(/^Bearer\s+/i, '');
-    if (!token) throw new UnauthorizedException('Please log in.');
+    const given = requestToken(req);
+    if (!given) throw new UnauthorizedException('Please log in.');
+    // A browser sends the cookie on any request to this host, including a form posted from another
+    // site. Such a form cannot add a custom header, so changes made by cookie must carry this one.
+    if (given.from === 'cookie' && !SAFE_METHODS.includes(req.method) && req.header(CSRF_HEADER) !== '1') {
+      throw new ForbiddenException('Request blocked. Please reload the page.');
+    }
+    const token = given.token;
 
     let payload: TokenPayload | SupportSessionTokenPayload;
     try {
@@ -100,6 +110,9 @@ export class AuthGuard implements CanActivate {
     if (!s || s.status !== 'active' || isExpired(s)) {
       throw new UnauthorizedException('The Banquet.ai support session has ended.');
     }
+    // It also ends when the support staff member is disabled or logs out of the support console.
+    const staff = await this.supportStaff.findOne({ _id: s.supportUserId }).select('+sessionId');
+    if (!staff?.active || !staff.sessionId) throw new UnauthorizedException('The Banquet.ai support session has ended.');
     const handlers = [ctx.getHandler(), ctx.getClass()];
     if (this.reflector.getAllAndOverride<boolean>(NOT_FOR_SUPPORT_KEY, handlers)) {
       throw new ForbiddenException('Not available in a Banquet.ai support session.');
@@ -108,7 +121,7 @@ export class AuthGuard implements CanActivate {
     req.auth = { user: user as unknown as UserDocument, role: role as unknown as RoleDocument, activity: payload.act, support: s };
     this.checkPermission(ctx, payload.act, role.permissions);
 
-    const changes = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+    const changes = !SAFE_METHODS.includes(req.method);
     if (changes && !this.reflector.getAllAndOverride<boolean>(SUPPORT_READ_OK_KEY, handlers)) {
       if (s.mode !== 'edit') {
         throw new ForbiddenException('This support session is read-only. Switch to edit mode and say what you will change first.');

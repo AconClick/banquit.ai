@@ -5,8 +5,8 @@ import { Activity, SessionResponse, SupportSessionInfo, User } from './models';
 
 const KEY = 'banquet.session';
 
+/** What the page remembers about the login. The session token itself is in an httpOnly cookie. */
 interface Stored {
-  token: string;
   user: User;
   activity: Activity | null;
   activities: Activity[];
@@ -27,12 +27,8 @@ export class SessionService {
   /** Shown on the login page after the server ends a session (signed in elsewhere, idle, expired). */
   readonly notice = signal<string | null>(null);
 
-  token(): string | null {
-    return this.state()?.token ?? null;
-  }
-
   apply(res: SessionResponse) {
-    this.save({ token: res.token, user: res.user, activity: res.activity, activities: res.activities, support: res.support });
+    this.save({ user: res.user, activity: res.activity, activities: res.activities, support: res.support });
   }
 
   /** Keeps the support session details (mode, end time) up to date in the banner. */
