@@ -56,7 +56,9 @@ export function priceLine(line: PriceLine): PricedLine {
       ...pct.map((t) => ({ id: t.id, name: t.name, amount: round2(line.qty * unitTaxable * (t.rate / 100)) })),
       ...fixed.map((t) => ({ id: t.id, name: t.name, amount: round2(line.qty * t.rate) })),
     ];
-    taxable = round2(amount - taxes.reduce((s, t) => s + t.amount, 0));
+    // A rate below the fixed taxes (say a fully discounted line) leaves nothing taxable: the fixed
+    // taxes are still charged, as on a tax-exclusive line, and the taxable value never goes negative.
+    taxable = Math.max(0, round2(amount - taxes.reduce((s, t) => s + t.amount, 0)));
   } else {
     taxable = amount;
     taxes = [

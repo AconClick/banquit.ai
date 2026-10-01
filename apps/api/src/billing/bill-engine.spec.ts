@@ -87,6 +87,35 @@ describe('calculateBill', () => {
     expect(capped.total).toBe(0);
   });
 
+  it('keeps the rounding of a shared discount off lines too small to take it (stress test seed 14471)', () => {
+    const bill = calculateBill({
+      roundTotal: false,
+      billDiscount: { type: 'percent', value: 99.99, reason: 'x' },
+      lines: [
+        line({ id: 'a', qty: 12.25, rate: 1199.99, taxes: [] }),
+        line({ id: 'b', qty: 7, rate: 950, taxInclusive: true, taxes: [] }),
+        pkg({ id: 'c', guaranteedPax: 1, actualPax: 0, rate: 0.99, taxes: [], discount: { type: 'amount', value: 500, reason: 'x' } }),
+        line({ id: 'd', qty: 1, rate: 149.99, taxes: [] }),
+        pkg({ id: 'e', guaranteedPax: 100, rate: 9.99, taxes: [], discount: { type: 'amount', value: 10, reason: 'x' } }),
+        line({ id: 'f', qty: 12.25, rate: 0.01, taxes: [] }),
+      ],
+    });
+    // The last line is 0.12; it used to take 0.13 of discount and go below zero.
+    for (const l of bill.lines) {
+      expect(l.discount).toBeLessThanOrEqual(l.amount);
+      expect(l.taxable).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('never shows a negative taxable value when a tax-inclusive rate is below its fixed taxes', () => {
+    // A fully discounted inclusive package with a 10-per-pax cess: the cess is still charged.
+    const comp = calculateBill({ roundTotal: false, lines: [pkg({ rate: 1060, taxInclusive: true, taxes: [gst5, cess], discount: { type: 'percent', value: 100, reason: 'Comp' } })] });
+    expect(comp.lines[0]).toMatchObject({ taxable: 0, total: 1000 });
+    expect(comp.taxes).toEqual([{ id: 'gst5', name: 'GST 5%', amount: 0 }, { id: 'cess', name: 'Cess', amount: 1000 }]);
+    const cheap = calculateBill({ roundTotal: false, lines: [line({ qty: 3, rate: 9.99, taxInclusive: true, taxes: [cess] })] });
+    expect(cheap.lines[0]).toMatchObject({ taxable: 0, total: 30 });
+  });
+
   it('rounds the total to a whole unit with a round-off line', () => {
     const bill = calculateBill({ roundTotal: true, lines: [line({ qty: 1, rate: 99.9, taxes: [gst18] })] });
     // 99.90 + 17.98 = 117.88, rounded to 118.

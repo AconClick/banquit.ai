@@ -13,7 +13,7 @@ import { TenantMiddleware } from './common/request-context.js';
 import { MasterRecord, MasterRecordSchema } from './masters/master-record.schema.js';
 import { MastersController } from './masters/masters.controller.js';
 import { MastersService } from './masters/masters.service.js';
-import { Counter, CounterSchema, HallBlock, HallBlockSchema, Reservation, ReservationSchema } from './reservations/reservation.schema.js';
+import { Counter, CounterSchema, HallBlock, HallBlockSchema, HallLock, HallLockSchema, Reservation, ReservationSchema } from './reservations/reservation.schema.js';
 import { ReservationsController } from './reservations/reservations.controller.js';
 import { BookingDetailsService } from './reservations/booking-details.service.js';
 import { PricingController } from './pricing/pricing.controller.js';
@@ -47,6 +47,7 @@ import { UsersService } from './users/users.service.js';
       { name: MasterRecord.name, schema: MasterRecordSchema },
       { name: Reservation.name, schema: ReservationSchema },
       { name: HallBlock.name, schema: HallBlockSchema },
+      { name: HallLock.name, schema: HallLockSchema },
       { name: Counter.name, schema: CounterSchema },
       { name: PropertyRate.name, schema: PropertyRateSchema },
       { name: PropertySettings.name, schema: PropertySettingsSchema },

@@ -122,19 +122,18 @@ export function calculateBill(input: BillInput): BillTotals {
     return { l, qty, amount, lineDiscount, net: round2(amount - lineDiscount) };
   });
 
-  // The bill discount is shared across lines in proportion to their amount after line discounts;
-  // the last line with an amount takes the rounding difference.
+  // The bill discount is shared across lines in proportion to their amount after line discounts.
+  // Rounding leaves a few paise over or short; they go to the largest lines that can take them, so
+  // no line is ever discounted below zero.
   const netTotal = sum(base.map((b) => b.net));
   const billDiscount = discountOn(netTotal, input.billDiscount);
-  const shares = base.map(() => 0);
-  if (billDiscount > 0 && netTotal > 0) {
-    let left = billDiscount;
-    const last = base.map((b) => b.net > 0).lastIndexOf(true);
-    base.forEach((b, i) => {
-      if (b.net <= 0) return;
-      shares[i] = i === last ? left : Math.min(left, round2((billDiscount * b.net) / netTotal));
-      left = round2(left - shares[i]);
-    });
+  const shares = base.map((b) => (billDiscount > 0 && netTotal > 0 ? Math.min(b.net, round2((billDiscount * b.net) / netTotal)) : 0));
+  let left = round2(billDiscount - sum(shares));
+  for (const i of base.map((_, i) => i).sort((x, y) => base[y].net - base[x].net)) {
+    if (left === 0) break;
+    const take = left > 0 ? Math.min(left, round2(base[i].net - shares[i])) : Math.max(left, -shares[i]);
+    shares[i] = round2(shares[i] + take);
+    left = round2(left - take);
   }
 
   const lines: PricedBillLine[] = base.map((b, i) => {
