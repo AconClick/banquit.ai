@@ -3,7 +3,7 @@
  * New modules add their permissions here.
  */
 export const PERMISSIONS = {
-  operations: ['diary.view', 'reservations.manage', 'reservations.confirmWithoutAdvance', 'billing.manage'],
+  operations: ['diary.view', 'reservations.manage', 'reservations.confirmWithoutAdvance', 'billing.manage', 'reports.view'],
   master: ['roles.manage', 'users.manage', 'masters.manage', 'settings.manage'],
 } as const;
 

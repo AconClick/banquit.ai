@@ -10,6 +10,7 @@ import { UsersPage } from './master/users-page';
 import { BookingPage } from './operations/booking/booking-page';
 import { FunctionSheet } from './operations/booking/function-sheet';
 import { Diary } from './operations/diary/diary';
+import { Reports } from './operations/reports/reports';
 import { Shell } from './shell';
 
 export const routes: Routes = [
@@ -24,6 +25,7 @@ export const routes: Routes = [
       { path: '', component: Diary, title: 'Reservation Diary · Banquet.ai' },
       { path: 'bookings/:id', component: BookingPage, title: 'Booking · Banquet.ai' },
       { path: 'bookings/:id/sheet', component: FunctionSheet, title: 'Function sheet · Banquet.ai' },
+      { path: 'reports', component: Reports, title: 'Reports · Banquet.ai' },
     ],
   },
   {

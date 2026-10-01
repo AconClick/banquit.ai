@@ -1,0 +1,57 @@
+:host { display: block; padding: 1rem; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; }
+.toolbar h1 { margin: 0 0.5rem 0 0; }
+.range { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+label.inline { flex-direction: row; align-items: center; gap: 0.4rem; margin: 0; flex: 0 0 auto; }
+.spacer { flex: 1; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+.tabs button { border: none; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 0.5rem 0.75rem; color: var(--muted); }
+.tabs button.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+.legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.9rem; margin-bottom: 0.75rem; font-size: 0.85rem; }
+.legend .key { display: inline-flex; align-items: center; gap: 0.35rem; }
+.legend i { width: 14px; height: 14px; border-radius: 3px; display: inline-block; border: 1px solid var(--border); }
+
+.scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); margin-bottom: 1rem; }
+table { border-collapse: collapse; font-size: 0.85rem; }
+.grid th, .grid td { border: 1px solid var(--border); padding: 0.35rem 0.5rem; text-align: center; white-space: nowrap; }
+.grid thead th { font-weight: 600; background: var(--surface); }
+.grid th.today { color: var(--primary); }
+.grid .sticky { position: sticky; left: 0; background: var(--surface); text-align: left; z-index: 1; min-width: 150px; }
+.grid .sticky small { display: block; font-weight: normal; }
+.grid tbody td { min-width: 70px; height: 2.4rem; color: #1d2330; }
+.grid tfoot th, .grid tfoot td { font-weight: normal; }
+
+/* Same colours as the Reservation Diary. */
+.c-free { background: var(--surface); }
+.c-enquiry { background: #d6c9ff; }
+.c-provisional { background: #9be3a6; }
+.c-confirmed { background: #8fb8ff; }
+.c-blocked { background: #5b6170; color: #fff !important; }
+
+.report { width: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 1rem; }
+.report th, .report td { padding: 0.5rem 0.65rem; border-bottom: 1px solid var(--border); text-align: left; }
+.report thead th { font-weight: 600; color: var(--muted); font-size: 0.8rem; }
+.report tfoot th { border-bottom: none; }
+.num { text-align: right !important; font-variant-numeric: tabular-nums; }
+.bar { display: inline-block; width: 60px; height: 8px; border-radius: 4px; background: var(--info-bg); margin-right: 0.5rem; vertical-align: middle; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--primary); }
+
+.demand { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; align-items: start; }
+.demand .report { margin-bottom: 0; }
+h2 { margin-top: 0.5rem; }
+
+.tiles { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75rem 1rem; min-width: 150px; display: flex; flex-direction: column; gap: 0.2rem; }
+.tile strong { font-size: 1.4rem; }
+
+@media (max-width: 760px) {
+  :host { padding: 0.75rem; }
+  .report { display: block; overflow-x: auto; }
+}
+
+@media print {
+  .toolbar button, .range button, .tabs button:not(.active) { display: none; }
+  .scroll { overflow: visible; }
+}
