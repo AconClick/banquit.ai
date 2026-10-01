@@ -42,5 +42,6 @@ export const PERMISSION_LABELS: Record<string, string> = {
   'settings.manage': 'Master settings',
   'diary.view': 'Reservation Diary',
   'reservations.manage': 'Create and change reservations',
+  'reservations.confirmWithoutAdvance': 'Confirm bookings without the full advance (with a note)',
   'billing.manage': 'Billing and settlement',
 };

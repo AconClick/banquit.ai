@@ -3,8 +3,12 @@ import { activityGuard } from './core/guards';
 import { Login } from './login/login';
 import { PasswordReset } from './login/password-reset';
 import { MasterPage } from './master/master-page';
+import { PropertySettingsPage } from './master/property-settings-page';
+import { RateMappingPage } from './master/rate-mapping-page';
 import { RolesPage } from './master/roles-page';
 import { UsersPage } from './master/users-page';
+import { BookingPage } from './operations/booking/booking-page';
+import { FunctionSheet } from './operations/booking/function-sheet';
 import { Diary } from './operations/diary/diary';
 import { Shell } from './shell';
 
@@ -16,7 +20,11 @@ export const routes: Routes = [
     path: 'operations',
     component: Shell,
     canActivate: [activityGuard('operations')],
-    children: [{ path: '', component: Diary, title: 'Reservation Diary · Banquet.ai' }],
+    children: [
+      { path: '', component: Diary, title: 'Reservation Diary · Banquet.ai' },
+      { path: 'bookings/:id', component: BookingPage, title: 'Booking · Banquet.ai' },
+      { path: 'bookings/:id/sheet', component: FunctionSheet, title: 'Function sheet · Banquet.ai' },
+    ],
   },
   {
     path: 'master',
@@ -27,6 +35,8 @@ export const routes: Routes = [
       { path: 'users', component: UsersPage, title: 'Users · Banquet.ai' },
       { path: 'roles', component: RolesPage, title: 'Roles · Banquet.ai' },
       { path: 'data/:kind', component: MasterPage, title: 'Master setup · Banquet.ai' },
+      { path: 'rates', component: RateMappingPage, title: 'Rate & Tax Mapping · Banquet.ai' },
+      { path: 'property-settings', component: PropertySettingsPage, title: 'Property Settings · Banquet.ai' },
     ],
   },
   { path: '', pathMatch: 'full', redirectTo: 'login' },

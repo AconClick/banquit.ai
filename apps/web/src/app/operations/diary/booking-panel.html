@@ -129,17 +129,39 @@
                 @for (c of lookups()['cancellationReason'] ?? []; track c.id) { <option [value]="c.id">{{ c['description'] }}</option> }
               </select>
             </label>
+            @if (details()?.cancellationPreview; as c) {
+              <p class="figures">
+                {{ c.daysBefore }} days before the function: {{ c.percent }}% of the proforma, <strong>{{ money(c.computed) }}</strong>.
+                Paid so far {{ money(details()!.advance.paid) }}.
+              </p>
+              <label>Charge (lower it to waive part) <input type="number" min="0" [max]="c.computed" step="any" name="pendingCharge" [(ngModel)]="pendingCharge" /></label>
+            }
+            <label>Note @if (details()?.cancellationPreview && pendingCharge !== details()!.cancellationPreview!.computed) { (needed for a waiver) } @else { (optional) }
+              <input name="pendingNote" maxlength="500" [(ngModel)]="pendingNote" />
+            </label>
+          } @else if (p === 'confirmed') {
+            @if (details(); as d) {
+              <p class="figures">
+                Advance needed: <strong>{{ money(d.advance.required) }}</strong> ({{ d.advance.percent }}% of {{ money(d.proforma.total) }}).
+                Paid: {{ money(d.advance.paid) }}.
+                @if (d.advance.shortBy > 0) { <br /><span class="warn">Short by {{ money(d.advance.shortBy) }}. Record the advance on the booking, or give a note if you are allowed to confirm without it.</span> }
+              </p>
+              @if (d.advance.shortBy > 0) {
+                <label>Note <input name="pendingNote" maxlength="500" [(ngModel)]="pendingNote" placeholder="e.g. Corporate account, pays on bill" /></label>
+              }
+            } @else { <p class="muted">Checking the advance…</p> }
           } @else {
             <label>Option date (optional) <input type="date" name="pendingOption" [(ngModel)]="pendingOptionDate" /></label>
           }
           <div class="actions">
             <button type="button" (click)="pending.set(null)">Back</button>
-            <button class="primary" [disabled]="busy() || (p === 'cancelled' && !pendingReasonId)" (click)="apply(p)">
-              {{ p === 'cancelled' ? 'Cancel booking' : 'Make provisional' }}
+            <button class="primary" [disabled]="busy() || (p === 'cancelled' && !pendingReasonId) || (p === 'confirmed' && !details())" (click)="apply(p)">
+              {{ p === 'cancelled' ? 'Cancel booking' : p === 'confirmed' ? 'Confirm booking' : 'Make provisional' }}
             </button>
           </div>
         </div>
       } @else {
+        <a class="open" [routerLink]="['/operations/bookings', r.id]">Open booking: menu, proforma and advances ›</a>
         <div class="status-actions">
           @if (editable()) { <button (click)="startEdit()">Change details</button> }
           @for (s of nextStatuses(); track s) {
@@ -157,7 +179,7 @@
             <span class="muted">{{ h.at.slice(0, 16).replace('T', ' ') }}</span>
             @if (h.from === null) { Created as {{ labels[h.to] }} }
             @else if (h.from === h.to) { {{ h.note ?? 'Changed' }}@if (h.reasonId) { ({{ name('amendmentReason', h.reasonId) }}) } }
-            @else { {{ labels[h.from] }} → {{ labels[h.to] }}@if (h.to === 'cancelled' && h.reasonId) { ({{ name('cancellationReason', h.reasonId) }}) } }
+            @else { {{ labels[h.from] }} → {{ labels[h.to] }}@if (h.to === 'cancelled' && h.reasonId) { ({{ name('cancellationReason', h.reasonId) }}) }@if (h.note) { <span class="muted"> · {{ h.note }}</span> } }
           </li>
         }
       </ol>

@@ -36,6 +36,9 @@ import { MastersStore } from './master/masters-store';
               <a [routerLink]="['/master/data', m.kind]" routerLinkActive="active">{{ m.label }}</a>
             }
           }
+          <h3>Per property</h3>
+          <a routerLink="/master/rates" routerLinkActive="active">Rate &amp; Tax Mapping</a>
+          <a routerLink="/master/property-settings" routerLinkActive="active">Property Settings</a>
         </nav>
       }
       <main class="content"><router-outlet /></main>

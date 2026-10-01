@@ -87,7 +87,7 @@ export class DiaryApi {
     firstValueFrom(this.http.get<DiaryData>('/api/diary', { params: { propertyId, from, days } }));
   create = (input: ReservationInput) => firstValueFrom(this.http.post<Reservation>('/api/reservations', input));
   update = (id: string, input: ReservationInput) => firstValueFrom(this.http.put<Reservation>(`/api/reservations/${id}`, input));
-  setStatus = (id: string, status: ReservationStatus, extra: { reasonId?: string; optionDate?: string; note?: string } = {}) =>
+  setStatus = (id: string, status: ReservationStatus, extra: { reasonId?: string; optionDate?: string; note?: string; cancellationCharge?: number } = {}) =>
     firstValueFrom(this.http.post<Reservation>(`/api/reservations/${id}/status`, { status, ...extra }));
   block = (input: { hallId: string; start: string; end: string; reasonId: string; notes: string }) =>
     firstValueFrom(this.http.post<HallBlock>('/api/hall-blocks', input));

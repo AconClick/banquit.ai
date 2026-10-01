@@ -1,7 +1,9 @@
 import { Component, OnInit, computed, inject, input, output, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { errorMessage } from '../../core/api.interceptor';
 import { MasterRecord } from '../../master/masters-store';
+import { BookingApi, BookingDetails, money } from '../booking/booking-api';
 import {
   DiaryApi,
   HallBlock,
@@ -44,12 +46,13 @@ interface Form {
 /** Side panel for taking a booking, viewing and changing it, and blocking a hall. */
 @Component({
   selector: 'app-booking-panel',
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   templateUrl: './booking-panel.html',
   styleUrl: './booking-panel.css',
 })
 export class BookingPanel implements OnInit {
   private readonly api = inject(DiaryApi);
+  private readonly bookingApi = inject(BookingApi);
   readonly request = input.required<PanelRequest>();
   readonly propertyId = input.required<string>();
   readonly halls = input.required<{ id: string; name: string; capacity: number }[]>();
@@ -67,6 +70,11 @@ export class BookingPanel implements OnInit {
   protected readonly pending = signal<ReservationStatus | null>(null);
   protected pendingReasonId = '';
   protected pendingOptionDate = '';
+  protected pendingNote = '';
+  protected pendingCharge: number | null = null;
+  /** Proforma, advance and cancellation figures, loaded when a status change needs them. */
+  protected readonly details = signal<BookingDetails | null>(null);
+  protected readonly money = money;
   private changed = false;
   protected form: Form = this.blank();
 
@@ -174,21 +182,39 @@ export class BookingPanel implements OnInit {
     });
   }
 
-  /** Cancel needs a reason; Provisional may take an option date; the rest apply at once. */
+  /**
+   * Cancel needs a reason and shows the charge; Confirm shows the advance and may take a note;
+   * Provisional may take an option date; the rest apply at once.
+   */
   protected choose(status: ReservationStatus) {
     this.error.set(null);
-    if (status === 'cancelled' || status === 'provisional') {
+    if (status === 'cancelled' || status === 'provisional' || status === 'confirmed') {
       this.pending.set(status);
       this.pendingReasonId = '';
       this.pendingOptionDate = '';
+      this.pendingNote = '';
+      this.pendingCharge = null;
+      this.details.set(null);
+      if (status !== 'provisional') {
+        this.bookingApi.details(this.reservation()!.id).then((d) => {
+          this.details.set(d);
+          this.pendingCharge = d.cancellationPreview?.computed ?? null;
+        }).catch((err) => this.error.set(errorMessage(err)));
+      }
       return;
     }
     this.apply(status);
   }
 
   protected apply(status: ReservationStatus) {
+    const note = this.pendingNote.trim() || undefined;
+    const preview = this.details()?.cancellationPreview;
     const extra = status === 'cancelled'
-      ? { reasonId: this.pendingReasonId }
+      ? {
+        reasonId: this.pendingReasonId, note,
+        cancellationCharge: preview && this.pendingCharge !== null && Number(this.pendingCharge) !== preview.computed ? Number(this.pendingCharge) : undefined,
+      }
+      : status === 'confirmed' ? { note }
       : status === 'provisional' && this.pendingOptionDate ? { optionDate: this.pendingOptionDate } : {};
     this.run(async () => {
       const saved = await this.api.setStatus(this.reservation()!.id, status, extra);
