@@ -310,7 +310,7 @@ describe('Banquet billing: draft, final bill and settlement', () => {
     await complete(r4, 3);
     const stamps: number[] = [];
     const stamp = async (id: string) => {
-      const doc = (await t.app.get<Model<Bill>>(getModelToken(Bill.name)).findById(id).lean()) as { updatedAt: Date };
+      const doc = (await t.app.get<Model<Bill>>(getModelToken(Bill.name)).findById(id).lean()) as unknown as { updatedAt: Date };
       stamps.push(new Date(doc.updatedAt).getTime());
     };
     const draft = (await ops.post(`billing/reservations/${r4}/draft`, {}).expect(201)).body;
