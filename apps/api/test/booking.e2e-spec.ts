@@ -1,3 +1,6 @@
+import { getConnectionToken } from '@nestjs/mongoose';
+import { Types, type Connection } from 'mongoose';
+import { ReservationsService } from '../src/reservations/reservations.service.js';
 import { startApp } from './helpers.js';
 
 const addDays = (date: string, days: number) => {
@@ -197,6 +200,27 @@ describe('Property prices, booking menus, advances and cancellation', () => {
     await ops.post(`reservations/${r.body.id}/status`, { status: 'cancelled', reasonId: ids.cancel, cancellationCharge: 3000, note: 'Regular client' }).expect(200);
     const after = (await ops.get(`reservations/${r.body.id}/details`).expect(200)).body;
     expect(after.cancellation).toMatchObject({ computed: 6150, charge: 3000, retained: 2000, refundDue: 0, balanceDue: 1000 });
+  });
+
+  it('runs a function on its day, needs actual pax to complete it, and lets billing mark it billed', async () => {
+    const day = today();
+    const r = (await ops.post('reservations', book({ status: 'confirmed', slots: [{ hallId: ids.hall1, start: `${day}T19:00`, end: `${day}T23:00` }] })).expect(201)).body;
+    const early = (await ops.post('reservations', book({ status: 'confirmed', slots: [{ hallId: ids.hall1, start: '2030-09-01T19:00', end: '2030-09-01T23:00' }] })).expect(201)).body;
+    await ops.post(`reservations/${early.id}/status`, { status: 'inFunction' }).expect(400);
+    await ops.post(`reservations/${r.id}/status`, { status: 'completed', actualPax: 90 }).expect(400);
+    await ops.post(`reservations/${r.id}/status`, { status: 'inFunction' }).expect(200);
+    const noPax = await ops.post(`reservations/${r.id}/status`, { status: 'completed' }).expect(400);
+    expect(noPax.body.message).toBe('Enter the actual pax (a whole number) to complete the function.');
+    const done = (await ops.post(`reservations/${r.id}/status`, { status: 'completed', actualPax: 112 }).expect(200)).body;
+    expect(done).toMatchObject({ status: 'completed', actualPax: 112 });
+    // Billed is reached only through billing, never by a status change from the screen.
+    await ops.post(`reservations/${r.id}/status`, { status: 'billed' }).expect(400);
+    const doc = await t.app.get<Connection>(getConnectionToken()).collection('reservations').findOne({ _id: new Types.ObjectId(r.id as string) });
+    const tenantId = doc!.tenantId as Types.ObjectId;
+    const billed = await t.app.get(ReservationsService).markBilled(tenantId, 'billing-test', r.id, 'B-000001');
+    expect(billed.status).toBe('billed');
+    expect(billed.history.at(-1)).toMatchObject({ from: 'completed', to: 'billed', note: 'Bill B-000001 settled' });
+    await expect(t.app.get(ReservationsService).markBilled(tenantId, 'billing-test', early.id, 'B-2')).rejects.toThrow(/cannot be marked billed/);
   });
 
   it('uses the property option period for provisional bookings', async () => {

@@ -36,6 +36,7 @@ class StatusDto {
   @IsOptional() @IsString() optionDate?: string;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
   @IsOptional() @IsNumber() cancellationCharge?: number;
+  @IsOptional() @IsInt() actualPax?: number;
 }
 
 class PackageLineDto {

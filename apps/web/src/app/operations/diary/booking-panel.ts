@@ -72,6 +72,7 @@ export class BookingPanel implements OnInit {
   protected pendingOptionDate = '';
   protected pendingNote = '';
   protected pendingCharge: number | null = null;
+  protected pendingActualPax: number | null = null;
   /** Proforma, advance and cancellation figures, loaded when a status change needs them. */
   protected readonly details = signal<BookingDetails | null>(null);
   protected readonly money = money;
@@ -188,14 +189,15 @@ export class BookingPanel implements OnInit {
    */
   protected choose(status: ReservationStatus) {
     this.error.set(null);
-    if (status === 'cancelled' || status === 'provisional' || status === 'confirmed') {
+    if (status === 'cancelled' || status === 'provisional' || status === 'confirmed' || status === 'completed') {
       this.pending.set(status);
       this.pendingReasonId = '';
       this.pendingOptionDate = '';
       this.pendingNote = '';
       this.pendingCharge = null;
+      this.pendingActualPax = null;
       this.details.set(null);
-      if (status !== 'provisional') {
+      if (status === 'cancelled' || status === 'confirmed') {
         this.bookingApi.details(this.reservation()!.id).then((d) => {
           this.details.set(d);
           this.pendingCharge = d.cancellationPreview?.computed ?? null;
@@ -215,6 +217,7 @@ export class BookingPanel implements OnInit {
         cancellationCharge: preview && this.pendingCharge !== null && Number(this.pendingCharge) !== preview.computed ? Number(this.pendingCharge) : undefined,
       }
       : status === 'confirmed' ? { note }
+      : status === 'completed' ? { actualPax: Number(this.pendingActualPax) }
       : status === 'provisional' && this.pendingOptionDate ? { optionDate: this.pendingOptionDate } : {};
     this.run(async () => {
       const saved = await this.api.setStatus(this.reservation()!.id, status, extra);
@@ -222,6 +225,13 @@ export class BookingPanel implements OnInit {
       this.pending.set(null);
       this.reservation.set(saved);
     });
+  }
+
+  protected actionLabel(s: ReservationStatus) {
+    const labels: Partial<Record<ReservationStatus, string>> = {
+      cancelled: 'Cancel booking', lost: 'Mark lost', inFunction: 'Start function', completed: 'Complete function',
+    };
+    return labels[s] ?? `Make ${STATUS_LABELS[s].toLowerCase()}`;
   }
 
   protected removeBlock() {

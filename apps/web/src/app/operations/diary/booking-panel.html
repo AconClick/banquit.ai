@@ -115,7 +115,7 @@
         @for (s of r.slots; track s.start) {
           <dt>Hall</dt><dd>{{ hallName(s.hallId) }}, {{ when(s.start, s.end) }}</dd>
         }
-        <dt>Pax</dt><dd>{{ r.guaranteedPax }} guaranteed, {{ r.expectedMaxPax }} expected max</dd>
+        <dt>Pax</dt><dd>{{ r.guaranteedPax }} guaranteed, {{ r.expectedMaxPax }} expected max@if (r.actualPax !== null) {, {{ r.actualPax }} actual}</dd>
         @if (r.optionDate && r.status === 'provisional') { <dt>Option date</dt><dd>{{ r.optionDate }}</dd> }
         @if (r.notes) { <dt>Notes</dt><dd class="pre">{{ r.notes }}</dd> }
       </dl>
@@ -150,13 +150,16 @@
                 <label>Note <input name="pendingNote" maxlength="500" [(ngModel)]="pendingNote" placeholder="e.g. Corporate account, pays on bill" /></label>
               }
             } @else { <p class="muted">Checking the advance…</p> }
+          } @else if (p === 'completed') {
+            <label>Actual pax <input type="number" min="0" step="1" name="pendingActual" [(ngModel)]="pendingActualPax" /></label>
+            <p class="figures muted">The bill uses the higher of {{ r.guaranteedPax }} guaranteed and the actual pax.</p>
           } @else {
             <label>Option date (optional) <input type="date" name="pendingOption" [(ngModel)]="pendingOptionDate" /></label>
           }
           <div class="actions">
             <button type="button" (click)="pending.set(null)">Back</button>
-            <button class="primary" [disabled]="busy() || (p === 'cancelled' && !pendingReasonId) || (p === 'confirmed' && !details())" (click)="apply(p)">
-              {{ p === 'cancelled' ? 'Cancel booking' : p === 'confirmed' ? 'Confirm booking' : 'Make provisional' }}
+            <button class="primary" [disabled]="busy() || (p === 'cancelled' && !pendingReasonId) || (p === 'confirmed' && !details()) || (p === 'completed' && pendingActualPax === null)" (click)="apply(p)">
+              {{ p === 'cancelled' ? 'Cancel booking' : p === 'confirmed' ? 'Confirm booking' : p === 'completed' ? 'Complete function' : 'Make provisional' }}
             </button>
           </div>
         </div>
@@ -169,7 +172,7 @@
           @if (editable()) { <button (click)="startEdit()">Change details</button> }
           @for (s of nextStatuses(); track s) {
             <button [class.danger]="s === 'cancelled' || s === 'lost'" [disabled]="busy()" (click)="choose(s)">
-              {{ s === 'cancelled' ? 'Cancel booking' : s === 'lost' ? 'Mark lost' : 'Make ' + labels[s].toLowerCase() }}
+              {{ actionLabel(s) }}
             </button>
           }
         </div>

@@ -48,7 +48,8 @@ const NEXT: Partial<Record<ReservationStatus, ReservationStatus[]>> = {
   enquiry: ['provisional', 'waitlisted', 'confirmed', 'lost', 'cancelled'],
   provisional: ['confirmed', 'lost', 'cancelled'],
   waitlisted: ['provisional', 'confirmed', 'lost', 'cancelled'],
-  confirmed: ['cancelled'],
+  confirmed: ['inFunction', 'cancelled'],
+  inFunction: ['completed'],
 };
 const CREATE_STATUSES: ReservationStatus[] = ['enquiry', 'provisional', 'waitlisted', 'confirmed'];
 const EDITABLE: ReservationStatus[] = ['enquiry', 'provisional', 'waitlisted', 'confirmed'];
@@ -71,6 +72,8 @@ export interface StatusOptions {
   cancellationCharge?: number;
   /** The user may confirm without the full advance, giving a note. */
   canSkipAdvance?: boolean;
+  /** Needed to complete a function (reservation-stages.md 3.7). */
+  actualPax?: number;
 }
 
 export const reservationView = (r: ReservationDocument, warnings: string[] = []) => ({
@@ -194,8 +197,22 @@ export class ReservationsService {
         if (!note) throw new BadRequestException('Give a note to confirm without the full advance.');
       }
     }
+    if (to === 'inFunction') {
+      // Started by the banquet captain on the day; a day's leeway covers time zones and early set-up.
+      const first = r.slots.map((s) => s.start.slice(0, 10)).sort()[0];
+      if (addDays(new Date().toISOString().slice(0, 10), 1) < first) {
+        throw new BadRequestException(`The function can be started from its date (${first}).`);
+      }
+    }
+    if (to === 'completed') {
+      const actual = opts.actualPax;
+      if (typeof actual !== 'number' || !Number.isInteger(actual) || actual < 0) {
+        throw new BadRequestException('Enter the actual pax (a whole number) to complete the function.');
+      }
+      r.actualPax = actual;
+    }
     const warnings: string[] = [];
-    if (HOLDING_STATUSES.includes(to)) {
+    if (HOLDING_STATUSES.includes(to) && r.status !== 'confirmed') {
       await this.checkAvailability(tenantId, r.slots, r._id);
     }
     if (to === 'provisional') {
@@ -208,6 +225,20 @@ export class ReservationsService {
     r.history.push({ from, to, at: new Date(), byUserId: userId, reasonId: opts.reasonId, note });
     await r.save();
     return reservationView(r, warnings);
+  }
+
+  /**
+   * Called by billing when the final bill is fully settled: the only way a booking becomes Billed,
+   * so the reservation status stays owned by this module.
+   */
+  async markBilled(tenantId: Types.ObjectId, userId: string, id: string, billNumber: string) {
+    const r = await this.get(tenantId, id);
+    if (r.status === 'billed') return reservationView(r);
+    if (r.status !== 'completed') throw new BadRequestException(`A ${STATUS_LABELS[r.status]} booking cannot be marked billed.`);
+    r.status = 'billed';
+    r.history.push({ from: 'completed', to: 'billed', at: new Date(), byUserId: userId, note: `Bill ${billNumber} settled` });
+    await r.save();
+    return reservationView(r);
   }
 
   async details(tenantId: Types.ObjectId, id: string) {
