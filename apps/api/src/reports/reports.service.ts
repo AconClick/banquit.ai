@@ -66,8 +66,7 @@ export class ReportsService {
     return {
       ...this.header(scope),
       ...math.availabilityForecast(scope.halls, reservations, blocks, scope.from, scope.to),
-      // Menu and resource demand need the menu choices and services on each booking.
-      menus: { available: false, message: 'Menu and resource demand will appear once booking details (menus and services) are recorded.' },
+      demand: math.menuDemand(reservations, await this.names(tenantId, 'menuItem'), scope.from, scope.to),
     };
   }
 
@@ -153,5 +152,7 @@ function toLike(r: LeanReservation): math.ReservationLike {
     slots: r.slots.map((s) => ({ hallId: s.hallId, start: s.start, end: s.end })),
     history: r.history.map((h) => ({ from: h.from, to: h.to, at: h.at })),
     createdAt: r.createdAt,
+    packages: (r.packages ?? []).map((p) => ({ packageId: p.packageId, name: p.name, pax: p.pax, choices: [...p.choices] })),
+    extras: (r.extras ?? []).map((e) => ({ itemId: e.itemId, name: e.name, aType: e.aType, qty: e.qty })),
   };
 }

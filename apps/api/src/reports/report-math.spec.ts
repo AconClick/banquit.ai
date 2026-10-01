@@ -93,4 +93,20 @@ describe('report calculations', () => {
     expect(f.days[1]).toMatchObject({ functions: 1, guaranteedPax: 30, expectedMaxPax: 35, hallsAvailable: 1 });
     expect(f.days[2]).toMatchObject({ functions: 0, hallsAvailable: 1 });
   });
+
+  it('adds up menu and resource demand from confirmed and provisional functions', () => {
+    const pkg = (pax: number, choices: string[]) => [{ packageId: 'blnv', name: 'Buffet Lunch', pax, choices }];
+    const demand = math.menuDemand([
+      booking({ packages: pkg(100, ['tikka', 'fish']), extras: [{ itemId: 'dj', name: 'DJ Console', aType: 'services', qty: 1 }] }),
+      booking({ status: 'provisional', packages: pkg(50, ['tikka']), extras: [{ itemId: 'dj', name: 'DJ Console', aType: 'services', qty: 2 }] }),
+      booking({ status: 'enquiry', packages: pkg(500, ['tikka']) }),
+      booking({ packages: pkg(80, ['fish']), slots: [{ hallId: 'roof', start: '2030-08-01T12:00', end: '2030-08-01T13:00' }] }),
+    ], new Map([['tikka', 'Chicken Tikka'], ['fish', 'Fish Fingers']]), '2030-07-01', '2030-07-31');
+    expect(demand.packages).toEqual([{ packageId: 'blnv', name: 'Buffet Lunch', bookings: 2, pax: 150, provisionalPax: 50 }]);
+    expect(demand.dishes).toEqual([
+      { itemId: 'tikka', name: 'Chicken Tikka', pax: 150, provisionalPax: 50 },
+      { itemId: 'fish', name: 'Fish Fingers', pax: 100, provisionalPax: 0 },
+    ]);
+    expect(demand.extras).toEqual([{ itemId: 'dj', name: 'DJ Console', aType: 'services', qty: 3, provisionalQty: 2 }]);
+  });
 });

@@ -1,5 +1,6 @@
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { errorMessage } from '../../core/api.interceptor';
 import { MasterRecord, MastersStore } from '../../master/masters-store';
 import { STATUS_LABELS, addDays, parseDate, toDate } from '../diary/diary-api';
@@ -33,7 +34,7 @@ const monthEnd = (date: string) => {
  */
 @Component({
   selector: 'app-reports',
-  imports: [FormsModule],
+  imports: [FormsModule, RouterLink],
   templateUrl: './reports.html',
   styleUrl: './reports.css',
 })

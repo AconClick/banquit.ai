@@ -29,7 +29,11 @@ export interface Forecast extends ReportHeader {
     days: { date: string; state: CellState; heldHours: number; bookings: string[] }[];
   }[];
   days: { date: string; functions: number; guaranteedPax: number; expectedMaxPax: number; tentativePax: number; hallsAvailable: number; hallsTotal: number }[];
-  menus: { available: boolean; message: string };
+  demand: {
+    packages: { packageId: string; name: string; bookings: number; pax: number; provisionalPax: number }[];
+    dishes: { itemId: string; name: string; pax: number; provisionalPax: number }[];
+    extras: { itemId: string; name: string; aType: 'alacarte' | 'services'; qty: number; provisionalQty: number }[];
+  };
 }
 
 export interface BookingsByStatus extends ReportHeader {

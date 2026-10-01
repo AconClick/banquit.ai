@@ -26,7 +26,22 @@ describe('Reports and forecast', () => {
     const roof = await master('hall', { description: 'Roof Top Hall', propertyId: property, capacity: 150, areaSqFt: 3000 });
     const mezz = await master('hall', { description: 'Mezzanine', propertyId: property, capacity: 60, areaSqFt: 900 });
     const wedding = await master('functionType', { description: 'Wedding' });
-    return { host: m.host, token: await operationsToken(m.host), property, roof, mezz, wedding };
+    const amendReason = await master('amendmentReason', { description: 'Guest request' });
+    const head = await master('incomeExpenseHead', { code: 'FB', description: 'Food & Beverage' });
+    const unit = await master('unit', { description: 'Plate', shortDescription: 'PLT' });
+    const food = await master('mainGroup', { code: 'FOOD', description: 'Food' });
+    const starters = await master('subGroup', { code: 'ST', description: 'Starters', mainGroupId: food });
+    const item = (code: string, description: string, over: object = {}) => master('menuItem', {
+      code, description, subGroupId: starters, unitId: unit, defaultRate: 0, aType: 'package', incomeExpenseHeadId: head, ...over,
+    });
+    const tikka = await item('S1', 'Chicken Tikka');
+    const fish = await item('S2', 'Fish Fingers');
+    const dj = await item('DJ', 'DJ Console', { aType: 'services', defaultRate: 7500 });
+    const pkg = await master('package', {
+      code: 'BLNV', description: 'Buffet Lunch Non Veg', ratePerPax: 950, propertyIds: [property],
+      incomeExpenseHeadId: head, groups: [{ subGroupId: starters, min: 1, max: 2, itemIds: [tikka, fish] }],
+    });
+    return { host: m.host, token: await operationsToken(m.host), property, roof, mezz, wedding, tikka, fish, dj, pkg, amendReason };
   }
   const book = (over: object = {}) => ({
     propertyId: ids.property, status: 'confirmed', hostName: 'POSist', phone: '+919800000111', functionTypeId: ids.wedding,
@@ -38,9 +53,13 @@ describe('Reports and forecast', () => {
     t = await startApp();
     const a = await setUp('reporthotel');
     ({ host, token } = a);
-    Object.assign(ids, { property: a.property, roof: a.roof, mezz: a.mezz, wedding: a.wedding });
+    Object.assign(ids, { property: a.property, roof: a.roof, mezz: a.mezz, wedding: a.wedding, tikka: a.tikka, fish: a.fish, dj: a.dj, pkg: a.pkg });
     const api = as(host, token);
-    await api.post('reservations', book()).expect(201);
+    const first = await api.post('reservations', book()).expect(201);
+    await t.http().put(`/api/reservations/${first.body.id}/menu`).set('Host', host).auth(token, auth).send({
+      packages: [{ packageId: ids.pkg, pax: 100, choices: [ids.tikka, ids.fish] }], extras: [{ kind: 'menuItem', itemId: ids.dj, qty: 1 }],
+      amendmentReasonId: a.amendReason,
+    }).expect(200);
     await api.post('reservations', book({ status: 'provisional', guaranteedPax: 40, expectedMaxPax: 50, slots: [{ hallId: ids.mezz, start: '2030-07-02T10:00', end: '2030-07-02T13:00' }] })).expect(201);
     const lost = await api.post('reservations', book({ status: 'enquiry', guaranteedPax: 30, expectedMaxPax: 40, slots: [{ hallId: ids.mezz, start: '2030-07-03T10:00', end: '2030-07-03T13:00' }] })).expect(201);
     await api.post(`reservations/${lost.body.id}/status`, { status: 'lost' }).expect(200);
@@ -68,7 +87,9 @@ describe('Reports and forecast', () => {
     expect(roof.days.map((d: { state: string }) => d.state)).toEqual(['confirmed', 'free', 'free']);
     expect(mezz.days.map((d: { state: string }) => d.state)).toEqual(['free', 'provisional', 'free']);
     expect(res.body.days[0]).toMatchObject({ functions: 1, guaranteedPax: 100, hallsAvailable: 1, hallsTotal: 2 });
-    expect(res.body.menus.available).toBe(false);
+    expect(res.body.demand.packages).toEqual([{ packageId: ids.pkg, name: 'Buffet Lunch Non Veg', bookings: 1, pax: 100, provisionalPax: 0 }]);
+    expect(res.body.demand.dishes.map((d: { name: string; pax: number }) => [d.name, d.pax])).toEqual([['Chicken Tikka', 100], ['Fish Fingers', 100]]);
+    expect(res.body.demand.extras).toEqual([{ itemId: ids.dj, name: 'DJ Console', aType: 'services', qty: 1, provisionalQty: 0 }]);
   });
 
   it('reports bookings by status, occupancy, conversion and function sheets', async () => {

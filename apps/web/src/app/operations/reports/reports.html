@@ -71,7 +71,38 @@
             </tfoot>
           </table>
         </div>
-        @if (!f.menus.available) { <p class="alert">{{ f.menus.message }}</p> }
+        <h2>Menu and resource demand</h2>
+        <p class="muted">Confirmed and provisional functions in this range. The provisional part may still change.</p>
+        @if (!f.demand.packages.length && !f.demand.extras.length) {
+          <p class="alert">No menus or services are recorded on these bookings yet.</p>
+        } @else {
+          <div class="demand">
+            <table class="report">
+              <thead><tr><th>Package</th><th class="num">Functions</th><th class="num">Pax</th><th class="num">Provisional</th></tr></thead>
+              <tbody>
+                @for (p of f.demand.packages; track p.packageId) {
+                  <tr><td>{{ p.name }}</td><td class="num">{{ p.bookings }}</td><td class="num">{{ p.pax }}</td><td class="num">{{ p.provisionalPax }}</td></tr>
+                } @empty { <tr><td colspan="4" class="muted">No packages.</td></tr> }
+              </tbody>
+            </table>
+            <table class="report">
+              <thead><tr><th>Menu item chosen</th><th class="num">Pax</th><th class="num">Provisional</th></tr></thead>
+              <tbody>
+                @for (d of f.demand.dishes; track d.itemId) {
+                  <tr><td>{{ d.name }}</td><td class="num">{{ d.pax }}</td><td class="num">{{ d.provisionalPax }}</td></tr>
+                } @empty { <tr><td colspan="3" class="muted">No menu choices yet.</td></tr> }
+              </tbody>
+            </table>
+            <table class="report">
+              <thead><tr><th>Ala carte and services</th><th>Type</th><th class="num">Qty</th><th class="num">Provisional</th></tr></thead>
+              <tbody>
+                @for (e of f.demand.extras; track e.itemId) {
+                  <tr><td>{{ e.name }}</td><td>{{ e.aType === 'services' ? 'Service' : 'Ala carte' }}</td><td class="num">{{ e.qty }}</td><td class="num">{{ e.provisionalQty }}</td></tr>
+                } @empty { <tr><td colspan="4" class="muted">None booked.</td></tr> }
+              </tbody>
+            </table>
+          </div>
+        }
       }
     }
   }
@@ -153,7 +184,7 @@
 
   @case ('sheets') {
     @if (sheets(); as s) {
-      <p class="muted">Confirmed functions in date and time order. Menus and services will show here once booking details are recorded.</p>
+      <p class="muted">Confirmed functions in date and time order. Open a booking number for its function sheet.</p>
       <table class="report">
         <thead>
           <tr>
@@ -166,7 +197,7 @@
             <tr>
               <td>{{ dayLabel(r.date) }}</td><td>{{ r.start.slice(11) }}–{{ r.end.slice(11) }}</td><td>{{ r.hall }}</td>
               @if (allProperties()) { <td>{{ propertyNames().get(r.propertyId) }}</td> }
-              <td>{{ r.number }}</td><td>{{ r.hostName }}</td><td>{{ r.functionType }}</td>
+              <td><a [routerLink]="['/operations/bookings', r.reservationId, 'sheet']">{{ r.number }}</a></td><td>{{ r.hostName }}</td><td>{{ r.functionType }}</td>
               <td class="num">{{ r.guaranteedPax }}</td><td class="num">{{ r.expectedMaxPax }}</td><td class="num">{{ r.actualPax ?? '' }}</td>
               <td>{{ statusLabels[r.status] }}</td>
             </tr>

@@ -26,6 +26,8 @@ export interface ReservationLike {
   slots: SlotLike[];
   history: { from: ReservationStatus | null; to: ReservationStatus; at: Date | string }[];
   createdAt?: Date | string;
+  packages?: { packageId: string; name: string; pax: number; choices: string[] }[];
+  extras?: { itemId: string; name: string; aType: 'alacarte' | 'services'; qty: number }[];
 }
 
 export interface BlockLike {
@@ -266,4 +268,43 @@ export function availabilityForecast(halls: HallLike[], reservations: Reservatio
       return { ...days.get(d)!, hallsAvailable: free, hallsTotal: halls.length };
     }),
   };
+}
+
+/**
+ * What the kitchen and banquet team must prepare for functions in the range: packages and their
+ * pax, each chosen menu item with the pax it serves, and ala carte items and services booked.
+ * Counts confirmed and provisional bookings, with the provisional part shown apart.
+ */
+export function menuDemand(reservations: ReservationLike[], itemNames: Map<string, string>, from: string, to: string) {
+  const packages = new Map<string, { packageId: string; name: string; bookings: number; pax: number; provisionalPax: number }>();
+  const dishes = new Map<string, { itemId: string; name: string; pax: number; provisionalPax: number }>();
+  const extras = new Map<string, { itemId: string; name: string; aType: 'alacarte' | 'services'; qty: number; provisionalQty: number }>();
+  for (const r of reservations) {
+    const confirmed = CONFIRMED_STATUSES.includes(r.status);
+    if (!confirmed && r.status !== 'provisional') continue;
+    const date = functionDate(r);
+    if (date < from || date > to) continue;
+    const share = (n: number) => (confirmed ? 0 : n);
+    for (const p of r.packages ?? []) {
+      const row = packages.get(p.packageId) ?? { packageId: p.packageId, name: p.name, bookings: 0, pax: 0, provisionalPax: 0 };
+      row.bookings += 1;
+      row.pax += p.pax;
+      row.provisionalPax += share(p.pax);
+      packages.set(p.packageId, row);
+      for (const itemId of p.choices) {
+        const dish = dishes.get(itemId) ?? { itemId, name: itemNames.get(itemId) ?? 'Unknown', pax: 0, provisionalPax: 0 };
+        dish.pax += p.pax;
+        dish.provisionalPax += share(p.pax);
+        dishes.set(itemId, dish);
+      }
+    }
+    for (const e of r.extras ?? []) {
+      const row = extras.get(e.itemId) ?? { itemId: e.itemId, name: e.name, aType: e.aType, qty: 0, provisionalQty: 0 };
+      row.qty += e.qty;
+      row.provisionalQty += share(e.qty);
+      extras.set(e.itemId, row);
+    }
+  }
+  const byName = <T extends { name: string }>(m: Map<string, T>) => [...m.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return { packages: byName(packages), dishes: byName(dishes), extras: byName(extras) };
 }

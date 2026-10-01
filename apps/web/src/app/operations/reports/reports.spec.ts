@@ -15,7 +15,11 @@ const forecast = (from: string) => ({
   from, to: from, propertyId: 'p1', properties: [{ id: 'p1', name: 'Prime Residency' }], dates: [from],
   halls: [{ hallId: 'h1', hallName: 'Roof Top Hall', propertyId: 'p1', capacity: 150, days: [{ date: from, state: 'confirmed', heldHours: 4, bookings: ['R-000001'] }] }],
   days: [{ date: from, functions: 1, guaranteedPax: 100, expectedMaxPax: 120, tentativePax: 0, hallsAvailable: 0, hallsTotal: 1 }],
-  menus: { available: false, message: 'Menu and resource demand will appear once booking details are recorded.' },
+  demand: {
+    packages: [{ packageId: 'k1', name: 'Buffet Lunch Non Veg', bookings: 1, pax: 100, provisionalPax: 0 }],
+    dishes: [{ itemId: 'm1', name: 'Chicken Tikka', pax: 100, provisionalPax: 0 }],
+    extras: [{ itemId: 'm2', name: 'DJ Console', aType: 'services', qty: 1, provisionalQty: 0 }],
+  },
 });
 
 describe('Reports', () => {
@@ -42,7 +46,9 @@ describe('Reports', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.textContent).toContain('Roof Top Hall');
     expect(el.querySelector('td.c-confirmed')?.textContent).toContain('4 h');
-    expect(el.textContent).toContain('Menu and resource demand');
+    expect(el.textContent).toContain('Buffet Lunch Non Veg');
+    expect(el.textContent).toContain('Chicken Tikka');
+    expect(el.textContent).toContain('DJ Console');
 
     // Other reports default to this month.
     [...el.querySelectorAll<HTMLButtonElement>('.tabs button')].find((b) => b.textContent?.includes('Bookings by status'))!.click();
