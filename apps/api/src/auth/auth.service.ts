@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { authRules } from '../config.js';
 import { checkPassword, generateOtp, hashPassword, passwordProblem, randomToken, sha256 } from '../common/passwords.js';
 import type { AuthContext } from '../common/request-context.js';
+import { RateLimiter } from '../common/rate-limit.js';
 import { Notifier } from '../notifications/notifier.js';
 import { activitiesFor, type Activity } from '../roles/permissions.js';
 import { Role } from '../roles/role.schema.js';
@@ -16,6 +17,10 @@ import { User, UserDocument } from '../users/user.schema.js';
 import type { TokenPayload } from './auth.guard.js';
 
 const INVALID_LOGIN = 'Invalid user id or password.';
+/** Checked when the user id is unknown, so a wrong user id takes as long as a wrong password. */
+const DUMMY_HASH = hashPassword('not-a-real-password-0');
+/** Master-panel codes one user can be sent per hour (each is an SMS that costs money). */
+const OTP_SENDS_PER_HOUR = 6;
 
 @Injectable()
 export class AuthService {
@@ -25,13 +30,17 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly notifier: Notifier,
     private readonly tenants: TenantsService,
+    private readonly limiter: RateLimiter,
   ) {}
 
   async login(tenant: TenantDocument, userId: string, password: string) {
     const user = await this.users
       .findOne({ tenantId: tenant._id, userId: userId.trim().toLowerCase() })
       .select('+passwordHash');
-    if (!user || !user.active) throw new UnauthorizedException(INVALID_LOGIN);
+    if (!user || !user.active) {
+      await checkPassword(password, await DUMMY_HASH);
+      throw new UnauthorizedException(INVALID_LOGIN);
+    }
 
     if (user.lockedUntil && user.lockedUntil > new Date()) {
       const minutes = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 60_000);
@@ -90,6 +99,7 @@ export class AuthService {
     if (user.otpSentAt && Date.now() - user.otpSentAt.getTime() < authRules.otpResendSeconds * 1000) {
       throw new HttpException('Please wait a few seconds before asking for a new code.', HttpStatus.TOO_MANY_REQUESTS);
     }
+    await this.limiter.hit(`otp-send:${user.id as string}`, OTP_SENDS_PER_HOUR, 3600, 'Too many codes requested. Please try again in an hour.');
     const code = generateOtp(authRules.otpLength);
     await this.users.updateOne(
       { _id: user._id },
@@ -114,18 +124,23 @@ export class AuthService {
     if (!user?.otpHash || !user.otpExpiresAt || user.otpExpiresAt < new Date()) {
       throw new BadRequestException('The code has expired. Please ask for a new one.');
     }
-    if (user.otpAttempts >= authRules.otpMaxAttempts) {
+    // Claim an attempt atomically first, so parallel guesses cannot get past the attempt limit.
+    const claimed = await this.users.updateOne(
+      { _id: user._id, otpHash: user.otpHash, otpAttempts: { $lt: authRules.otpMaxAttempts } },
+      { $inc: { otpAttempts: 1 } },
+    );
+    if (claimed.modifiedCount !== 1) {
       throw new BadRequestException('Too many wrong codes. Please ask for a new one.');
     }
     if (sha256(`${user.id}:${code.trim()}`) !== user.otpHash) {
-      user.otpAttempts += 1;
-      await user.save();
       throw new BadRequestException('The code is wrong.');
     }
-    user.set('otpHash', undefined);
-    user.set('otpExpiresAt', undefined);
-    user.otpAttempts = 0;
-    await user.save();
+    // Single use: only the request that clears this exact code gets the Master session.
+    const used = await this.users.updateOne(
+      { _id: user._id, otpHash: user.otpHash },
+      { $unset: { otpHash: 1, otpExpiresAt: 1 }, $set: { otpAttempts: 0 } },
+    );
+    if (used.modifiedCount !== 1) throw new BadRequestException('The code has expired. Please ask for a new one.');
     return this.session(user, 'master');
   }
 

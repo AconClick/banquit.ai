@@ -1,4 +1,4 @@
-import type { startApp } from '../helpers.js';
+import { tokenOf, type startApp } from '../helpers.js';
 
 type App = Awaited<ReturnType<typeof startApp>>;
 const auth = { type: 'bearer' as const };
@@ -85,8 +85,8 @@ export async function venue(t: App, sub: string, opts: { properties?: number; ha
   await send('post')('users', { userId: 'ops1', firstName: 'Ops', email, roleId: role.body.id }, master);
   const pw = t.passwordIn(t.lastMessage(email).body);
   const first = await t.http().post('/api/auth/login').set('Host', host).send({ userId: 'ops1', password: pw });
-  const changed = await t.http().post('/api/auth/change-password').set('Host', host).auth(first.body.token, auth).send({ currentPassword: pw, newPassword: 'Ops2026xxx' });
-  ops = (await t.http().post('/api/auth/activity').set('Host', host).auth(changed.body.token, auth).send({ activity: 'operations' })).body.token;
+  const changed = await t.http().post('/api/auth/change-password').set('Host', host).auth(tokenOf(first), auth).send({ currentPassword: pw, newPassword: 'Ops2026xxx' });
+  ops = tokenOf(await t.http().post('/api/auth/activity').set('Host', host).auth(tokenOf(changed), auth).send({ activity: 'operations' }));
   return { sub, host, master, ops, ids, get: (p, tok) => send('get')(p, undefined, tok), post: send('post'), put: send('put') };
 }
 

@@ -1,4 +1,4 @@
-import { startApp } from './helpers.js';
+import { startApp, tokenOf } from './helpers.js';
 
 describe('Master data', () => {
   let t: Awaited<ReturnType<typeof startApp>>;
@@ -101,7 +101,7 @@ describe('Master data', () => {
 
   it('lets Operations read masters but not change them, and keeps tenants apart', async () => {
     const ops = await t.http().post('/api/auth/login').set('Host', host).send({ userId: 'entp', password: 'Start2026x' }).expect(200);
-    const opsToken = (await t.http().post('/api/auth/activity').set('Host', host).auth(ops.body.token, auth).send({ activity: 'operations' }).expect(200)).body.token;
+    const opsToken = tokenOf(await t.http().post('/api/auth/activity').set('Host', host).auth(tokenOf(ops), auth).send({ activity: 'operations' }).expect(200));
     await t.http().get('/api/masters/seatingStyle').set('Host', host).auth(opsToken, auth).expect(200);
     await t.http().post('/api/masters/seatingStyle').set('Host', host).auth(opsToken, auth).send({ description: 'U-Shape' }).expect(403);
 

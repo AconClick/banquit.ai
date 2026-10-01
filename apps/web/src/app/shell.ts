@@ -137,7 +137,6 @@ export class Shell {
     const user = this.session.user();
     if (!user) return;
     this.session.apply({
-      token: this.session.token()!,
       user,
       activity: null,
       activities: this.session.activities(),

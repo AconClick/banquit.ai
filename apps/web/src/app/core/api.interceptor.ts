@@ -5,22 +5,24 @@ import { catchError, throwError } from 'rxjs';
 import { SessionService } from './session.service';
 import { TenantService } from './tenant.service';
 
-/** Adds the tenant header (development) and the session token, and sends the user to login on 401. */
+/**
+ * Adds the tenant header (development) and the CSRF header, and sends the user to login on 401.
+ * The session itself travels in an httpOnly cookie that this code never sees.
+ */
 export const apiInterceptor: HttpInterceptorFn = (req, next) => {
   const session = inject(SessionService);
   const tenant = inject(TenantService);
   const router = inject(Router);
 
-  let headers = req.headers;
+  let headers = req.headers.set('X-Banquet-Csrf', '1');
   const domain = tenant.headerDomain();
   if (domain) headers = headers.set('X-Tenant', domain);
-  // A request that carries its own token (the support console) keeps it.
-  const token = req.headers.has('Authorization') ? null : session.token();
-  if (token) headers = headers.set('Authorization', `Bearer ${token}`);
+  // A request that carries its own token (the support console) is not about this app's session.
+  const ownToken = req.headers.has('Authorization');
 
   return next(req.clone({ headers })).pipe(
     catchError((err: HttpErrorResponse) => {
-      if (err.status === 401 && token && !req.url.endsWith('/auth/login')) {
+      if (err.status === 401 && !ownToken && session.loggedIn() && !req.url.endsWith('/auth/login')) {
         session.clear(errorMessage(err));
         void router.navigate(['/login']);
       }

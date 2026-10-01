@@ -5,6 +5,8 @@ export default defineConfig({
   plugins: [tsconfigPaths()],
   test: {
     globals: true,
+    // Many logins from one IP; the rate-limit test turns limits back on for itself.
+    env: { RATE_LIMITS: 'false' },
     root: './',
     include: ['test/stress/**/*.stress.ts'],
     fileParallelism: false,

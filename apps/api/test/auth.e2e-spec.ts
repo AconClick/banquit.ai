@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/app.setup.js';
 import { ConsoleNotifier, Notifier } from '../src/notifications/notifier.js';
 import { authRules } from '../src/config.js';
+import { tokenOf } from './helpers.js';
 
 const ADMIN = { 'x-platform-token': 'dev-platform-token' };
 const PRIME = 'prime.banquet.ai';
@@ -32,8 +33,8 @@ describe('Sign-up, approval and login', () => {
     const login = await http().post('/api/auth/login').set('Host', host).send({ userId, password }).expect(200);
     expect(login.body.mustChangePassword).toBe(true);
     const changed = await http().post('/api/auth/change-password').set('Host', host)
-      .auth(login.body.token, { type: 'bearer' }).send({ currentPassword: password, newPassword }).expect(200);
-    return changed.body.token as string;
+      .auth(tokenOf(login), { type: 'bearer' }).send({ currentPassword: password, newPassword }).expect(200);
+    return tokenOf(changed) as string;
   }
 
   beforeAll(async () => {
@@ -85,19 +86,19 @@ describe('Sign-up, approval and login', () => {
     expect(login.body.activities).toEqual(['operations', 'master']);
 
     // Nothing but the password change is allowed until the password is changed.
-    await http().post('/api/auth/activity').set('Host', PRIME).auth(login.body.token, { type: 'bearer' })
+    await http().post('/api/auth/activity').set('Host', PRIME).auth(tokenOf(login), { type: 'bearer' })
       .send({ activity: 'operations' }).expect(403);
-    await http().post('/api/auth/change-password').set('Host', PRIME).auth(login.body.token, { type: 'bearer' })
+    await http().post('/api/auth/change-password').set('Host', PRIME).auth(tokenOf(login), { type: 'bearer' })
       .send({ currentPassword: password, newPassword: 'short' }).expect(400);
-    const changed = await http().post('/api/auth/change-password').set('Host', PRIME).auth(login.body.token, { type: 'bearer' })
+    const changed = await http().post('/api/auth/change-password').set('Host', PRIME).auth(tokenOf(login), { type: 'bearer' })
       .send({ currentPassword: password, newPassword: 'Prime2026x' }).expect(200);
-    const token = changed.body.token;
+    const token = tokenOf(changed);
 
     const ops = await http().post('/api/auth/activity').set('Host', PRIME).auth(token, { type: 'bearer' })
       .send({ activity: 'operations' }).expect(200);
     expect(ops.body).toMatchObject({ otpRequired: false, activity: 'operations' });
     // Operations does not open Master screens.
-    await http().get('/api/users').set('Host', PRIME).auth(ops.body.token, { type: 'bearer' }).expect(403);
+    await http().get('/api/users').set('Host', PRIME).auth(tokenOf(ops), { type: 'bearer' }).expect(403);
 
     const master = await http().post('/api/auth/activity').set('Host', PRIME).auth(token, { type: 'bearer' })
       .send({ activity: 'master' }).expect(200);
@@ -109,7 +110,7 @@ describe('Sign-up, approval and login', () => {
       .send({ code: otpIn(sms.body) }).expect(200);
     expect(verified.body.activity).toBe('master');
 
-    const users = await http().get('/api/users').set('Host', PRIME).auth(verified.body.token, { type: 'bearer' }).expect(200);
+    const users = await http().get('/api/users').set('Host', PRIME).auth(tokenOf(verified), { type: 'bearer' }).expect(200);
     expect(users.body.map((u: { userId: string }) => u.userId)).toEqual(['entp']);
   });
 
@@ -124,9 +125,9 @@ describe('Sign-up, approval and login', () => {
 
   it('allows only one active session per user', async () => {
     const first = await http().post('/api/auth/login').set('Host', PRIME).send({ userId: 'entp', password: 'Prime2026x' }).expect(200);
-    await http().get('/api/auth/me').set('Host', PRIME).auth(first.body.token, { type: 'bearer' }).expect(200);
+    await http().get('/api/auth/me').set('Host', PRIME).auth(tokenOf(first), { type: 'bearer' }).expect(200);
     await http().post('/api/auth/login').set('Host', PRIME).send({ userId: 'entp', password: 'Prime2026x' }).expect(200);
-    const res = await http().get('/api/auth/me').set('Host', PRIME).auth(first.body.token, { type: 'bearer' }).expect(401);
+    const res = await http().get('/api/auth/me').set('Host', PRIME).auth(tokenOf(first), { type: 'bearer' }).expect(401);
     expect(res.body.message).toMatch(/signed in elsewhere/);
   });
 
@@ -159,23 +160,23 @@ describe('Sign-up, approval and login', () => {
 
     // entp opens Master and disables the engineer.
     const login = await http().post('/api/auth/login').set('Host', PRIME).send({ userId: 'entp', password: 'Prime2026x' }).expect(200);
-    await http().post('/api/auth/activity').set('Host', PRIME).auth(login.body.token, { type: 'bearer' }).send({ activity: 'master' }).expect(200);
-    const master = await http().post('/api/auth/otp/verify').set('Host', PRIME).auth(login.body.token, { type: 'bearer' })
+    await http().post('/api/auth/activity').set('Host', PRIME).auth(tokenOf(login), { type: 'bearer' }).send({ activity: 'master' }).expect(200);
+    const master = await http().post('/api/auth/otp/verify').set('Host', PRIME).auth(tokenOf(login), { type: 'bearer' })
       .send({ code: otpIn(lastMessage('+919800000001').body) }).expect(200);
     const auth = { type: 'bearer' as const };
-    await http().post(`/api/users/${created.body.id}/active`).set('Host', PRIME).auth(master.body.token, auth).send({ active: false }).expect(200);
+    await http().post(`/api/users/${created.body.id}/active`).set('Host', PRIME).auth(tokenOf(master), auth).send({ active: false }).expect(200);
     await http().get('/api/auth/me').set('Host', PRIME).auth(implToken, auth).expect(401);
 
-    const entp = (await http().get('/api/users').set('Host', PRIME).auth(master.body.token, auth)).body.find((u: { userId: string }) => u.userId === 'entp');
-    await http().post(`/api/users/${entp.id}/active`).set('Host', PRIME).auth(master.body.token, auth).send({ active: false }).expect(400);
+    const entp = (await http().get('/api/users').set('Host', PRIME).auth(tokenOf(master), auth)).body.find((u: { userId: string }) => u.userId === 'entp');
+    await http().post(`/api/users/${entp.id}/active`).set('Host', PRIME).auth(tokenOf(master), auth).send({ active: false }).expect(400);
   });
 
   it('lets entp create roles and users, and enforces role permissions', async () => {
     const login = await http().post('/api/auth/login').set('Host', PRIME).send({ userId: 'entp', password: 'Prime2026x' }).expect(200);
-    const t0 = login.body.token;
+    const t0 = tokenOf(login);
     await http().post('/api/auth/activity').set('Host', PRIME).auth(t0, { type: 'bearer' }).send({ activity: 'master' }).expect(200);
-    const master = (await http().post('/api/auth/otp/verify').set('Host', PRIME).auth(t0, { type: 'bearer' })
-      .send({ code: otpIn(lastMessage('+919800000001').body) }).expect(200)).body.token;
+    const master = tokenOf(await http().post('/api/auth/otp/verify').set('Host', PRIME).auth(t0, { type: 'bearer' })
+      .send({ code: otpIn(lastMessage('+919800000001').body) }).expect(200));
     const auth = { type: 'bearer' as const };
 
     const role = await http().post('/api/roles').set('Host', PRIME).auth(master, auth)
@@ -194,16 +195,16 @@ describe('Sign-up, approval and login', () => {
   it('throttles OTP resends and limits wrong codes', async () => {
     const login = await http().post('/api/auth/login').set('Host', PRIME).send({ userId: 'entp', password: 'Prime2026x' }).expect(200);
     const auth = { type: 'bearer' as const };
-    await http().post('/api/auth/activity').set('Host', PRIME).auth(login.body.token, auth).send({ activity: 'master' }).expect(200);
+    await http().post('/api/auth/activity').set('Host', PRIME).auth(tokenOf(login), auth).send({ activity: 'master' }).expect(200);
     authRules.otpResendSeconds = 30;
-    await http().post('/api/auth/activity').set('Host', PRIME).auth(login.body.token, auth).send({ activity: 'master' }).expect(429);
+    await http().post('/api/auth/activity').set('Host', PRIME).auth(tokenOf(login), auth).send({ activity: 'master' }).expect(429);
     authRules.otpResendSeconds = 0;
     const code = otpIn(lastMessage('+919800000001').body);
     const wrong = code === '000000' ? '111111' : '000000';
     for (let i = 0; i < 3; i++) {
-      await http().post('/api/auth/otp/verify').set('Host', PRIME).auth(login.body.token, auth).send({ code: wrong }).expect(400);
+      await http().post('/api/auth/otp/verify').set('Host', PRIME).auth(tokenOf(login), auth).send({ code: wrong }).expect(400);
     }
-    const res = await http().post('/api/auth/otp/verify').set('Host', PRIME).auth(login.body.token, auth).send({ code }).expect(400);
+    const res = await http().post('/api/auth/otp/verify').set('Host', PRIME).auth(tokenOf(login), auth).send({ code }).expect(400);
     expect(res.body.message).toMatch(/Too many wrong codes/);
   });
 

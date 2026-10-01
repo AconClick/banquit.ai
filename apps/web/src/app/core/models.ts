@@ -22,7 +22,6 @@ export interface Role {
 }
 
 export interface SessionResponse {
-  token: string;
   user: User;
   activity: Activity | null;
   activities: Activity[];

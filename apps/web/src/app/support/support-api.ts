@@ -22,6 +22,8 @@ export interface ClientAccount {
 }
 
 export interface EnterResponse extends SessionResponse {
+  /** Handed to the client's address in the link, which swaps it for its own session cookie. */
+  token: string;
   subdomain: string;
   loginHost: string;
 }
