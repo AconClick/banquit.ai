@@ -19,6 +19,8 @@ import {
 export type ReportKind = 'forecast' | 'status' | 'occupancy' | 'conversion' | 'sheets' | 'revenue';
 
 const FORECAST_DAYS = 14;
+/** The API lists function sheets for at most this many days. */
+const MAX_SHEET_DAYS = 62;
 const PROPERTY_KEY = 'banquet.reports.property';
 
 const monthStart = (date: string) => `${date.slice(0, 8)}01`;
@@ -58,6 +60,7 @@ export class Reports implements OnInit {
     { state: 'blocked', label: 'Blocked' },
   ];
   protected readonly statusLabels = STATUS_LABELS;
+  protected readonly maxSheetDays = MAX_SHEET_DAYS;
   protected readonly today = toDate(new Date());
 
   protected readonly properties = signal<MasterRecord[]>([]);
@@ -110,6 +113,7 @@ export class Reports implements OnInit {
       this.from.set(monthStart(this.today));
       this.to.set(monthEnd(this.today));
     }
+    if (kind === 'sheets') this.to.set(this.sheetEnd(this.from(), this.to()));
     void this.load();
   }
 
@@ -126,8 +130,14 @@ export class Reports implements OnInit {
   protected setRange(from: string, to: string) {
     if (!from || !to) return;
     this.from.set(from);
-    this.to.set(to < from ? from : to);
+    this.to.set(this.tab() === 'sheets' ? this.sheetEnd(from, to) : to < from ? from : to);
     void this.load();
+  }
+
+  /** Function sheets cover up to MAX_SHEET_DAYS; a longer range is cut short at its end. */
+  private sheetEnd(from: string, to: string) {
+    const last = addDays(from, MAX_SHEET_DAYS - 1);
+    return to < from ? from : to > last ? last : to;
   }
 
   /** Moves the range forward or back by its own length. */

@@ -24,6 +24,8 @@ import { NotificationsModule } from './notifications/notifications.module.js';
 import { PlatformController, TenantsController } from './platform/platform.controller.js';
 import { ProvisioningService } from './platform/provisioning.service.js';
 import { Role, RoleSchema } from './roles/role.schema.js';
+import { ReportCacheService } from './reports/report-cache.service.js';
+import { ReportSummary, ReportSummarySchema, ReportWatermark, ReportWatermarkSchema } from './reports/report-summary.schema.js';
 import { ReportsController } from './reports/reports.controller.js';
 import { ReportsService } from './reports/reports.service.js';
 import { RolesController } from './roles/roles.controller.js';
@@ -54,13 +56,15 @@ import { UsersService } from './users/users.service.js';
       { name: Bill.name, schema: BillSchema },
       { name: SupportUser.name, schema: SupportUserSchema },
       { name: SupportSession.name, schema: SupportSessionSchema },
+      { name: ReportSummary.name, schema: ReportSummarySchema },
+      { name: ReportWatermark.name, schema: ReportWatermarkSchema },
     ]),
     JwtModule.register({ secret: config.jwtSecret, signOptions: { expiresIn: `${authRules.maxSessionHours}h` } }),
     NotificationsModule,
   ],
   controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController,
     SupportConsoleController, SupportSessionController, SupportAccessController, SupportStaffController],
-  providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, AuthGuard,
+  providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, ReportCacheService, AuthGuard,
     BillingService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
 })
 export class AppModule implements NestModule {

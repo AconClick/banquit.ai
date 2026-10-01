@@ -184,7 +184,7 @@
 
   @case ('sheets') {
     @if (sheets(); as s) {
-      <p class="muted">Confirmed functions in date and time order. Open a booking number for its function sheet.</p>
+      <p class="muted">Confirmed functions in date and time order, up to {{ maxSheetDays }} days at a time. Open a booking number for its function sheet.</p>
       <table class="report">
         <thead>
           <tr>
@@ -262,6 +262,9 @@
             }
           </tbody>
         </table>
+      }
+      @if (r.billCount > r.bills.length) {
+        <p class="muted">Showing the first {{ r.bills.length }} of {{ r.billCount }} bills, earliest first. The totals above cover all of them; choose fewer days or one property to list the rest.</p>
       }
       <table class="report">
         <thead>
