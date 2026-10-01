@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Error as MongooseError, Model, Types } from 'mongoose';
 import { MastersService } from '../masters/masters.service.js';
 import { PricingService } from '../pricing/pricing.service.js';
 import { BookingDetailsService, type MenuInput, type ReceiptInput } from './booking-details.service.js';
@@ -10,6 +10,7 @@ import {
   Counter,
   HallBlock,
   HallBlockDocument,
+  HallLock,
   HOLDING_STATUSES,
   HallSlot,
   Reservation,
@@ -61,6 +62,12 @@ export const STATUS_LABELS: Record<ReservationStatus, string> = {
   inFunction: 'In Function', completed: 'Function Completed', billed: 'Billed', cancelled: 'Cancelled', lost: 'Lost',
 };
 
+/** How long one request may hold a hall while it checks and saves, and how long another waits for it. */
+const HALL_LOCK_LEASE_MS = 15_000;
+const HALL_LOCK_WAIT_MS = 5_000;
+export const CHANGED_ELSEWHERE = 'This booking was changed by someone else. Reload it and try again.';
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /** Packages, extras and advances can be changed until the function is over. */
 const DETAILS_EDITABLE: ReservationStatus[] = ['enquiry', 'provisional', 'waitlisted', 'confirmed', 'inFunction'];
 
@@ -107,6 +114,7 @@ export class ReservationsService {
     @InjectModel(Reservation.name) private readonly reservations: Model<Reservation>,
     @InjectModel(HallBlock.name) private readonly blocks: Model<HallBlock>,
     @InjectModel(Counter.name) private readonly counters: Model<Counter>,
+    @InjectModel(HallLock.name) private readonly locks: Model<HallLock>,
     private readonly masters: MastersService,
     private readonly pricing: PricingService,
     private readonly booking: BookingDetailsService,
@@ -144,15 +152,18 @@ export class ReservationsService {
 
   async create(tenantId: Types.ObjectId, userId: string, input: ReservationInput) {
     if (!CREATE_STATUSES.includes(input.status)) throw new BadRequestException('A new booking must be an Enquiry, Provisional, Waitlisted or Confirmed.');
-    const { clean, warnings } = await this.validate(tenantId, input, null);
-    const seq = await this.next(tenantId, 'reservation');
-    const r = await this.reservations.create({
-      ...clean,
-      tenantId,
-      number: `R-${String(seq).padStart(6, '0')}`,
-      history: [{ from: null, to: clean.status, at: new Date(), byUserId: userId }],
+    const holds = HOLDING_STATUSES.includes(input.status);
+    return this.withHalls(tenantId, holds ? input.slots : [], async () => {
+      const { clean, warnings } = await this.validate(tenantId, input, null);
+      const seq = await this.next(tenantId, 'reservation');
+      const r = await this.reservations.create({
+        ...clean,
+        tenantId,
+        number: `R-${String(seq).padStart(6, '0')}`,
+        history: [{ from: null, to: clean.status, at: new Date(), byUserId: userId }],
+      });
+      return reservationView(r, warnings);
     });
-    return reservationView(r, warnings);
   }
 
   async update(tenantId: Types.ObjectId, userId: string, id: string, input: ReservationInput) {
@@ -162,13 +173,15 @@ export class ReservationsService {
       await this.activeRecord(tenantId, 'amendmentReason', input.amendmentReasonId, 'Amendment reason');
     }
     // Status is changed through changeStatus, never by editing.
-    const { clean, warnings } = await this.validate(tenantId, { ...input, status: r.status }, r);
-    Object.assign(r, clean);
-    r.history.push({
-      from: r.status, to: r.status, at: new Date(), byUserId: userId, reasonId: input.amendmentReasonId, note: 'Amended',
+    return this.withHalls(tenantId, HOLDING_STATUSES.includes(r.status) ? input.slots : [], async () => {
+      const { clean, warnings } = await this.validate(tenantId, { ...input, status: r.status }, r);
+      Object.assign(r, clean);
+      r.history.push({
+        from: r.status, to: r.status, at: new Date(), byUserId: userId, reasonId: input.amendmentReasonId, note: 'Amended',
+      });
+      await this.saveChecked(r);
+      return reservationView(r, warnings);
     });
-    await r.save();
-    return reservationView(r, warnings);
   }
 
   async changeStatus(
@@ -212,19 +225,20 @@ export class ReservationsService {
       r.actualPax = actual;
     }
     const warnings: string[] = [];
-    if (HOLDING_STATUSES.includes(to) && r.status !== 'confirmed') {
-      await this.checkAvailability(tenantId, r.slots, r._id);
-    }
-    if (to === 'provisional') {
-      r.optionDate = await this.optionDate(tenantId, r.propertyId, opts.optionDate, r.slots);
-    } else if (to !== 'cancelled') {
-      r.set('optionDate', undefined);
-    }
-    const from = r.status;
-    r.status = to;
-    r.history.push({ from, to, at: new Date(), byUserId: userId, reasonId: opts.reasonId, note });
-    await r.save();
-    return reservationView(r, warnings);
+    const takesHall = HOLDING_STATUSES.includes(to) && r.status !== 'confirmed';
+    return this.withHalls(tenantId, takesHall ? r.slots : [], async () => {
+      if (takesHall) await this.checkAvailability(tenantId, r.slots, r._id);
+      if (to === 'provisional') {
+        r.optionDate = await this.optionDate(tenantId, r.propertyId, opts.optionDate, r.slots);
+      } else if (to !== 'cancelled') {
+        r.set('optionDate', undefined);
+      }
+      const from = r.status;
+      r.status = to;
+      r.history.push({ from, to, at: new Date(), byUserId: userId, reasonId: opts.reasonId, note });
+      await this.saveChecked(r);
+      return reservationView(r, warnings);
+    });
   }
 
   /**
@@ -235,10 +249,17 @@ export class ReservationsService {
     const r = await this.get(tenantId, id);
     if (r.status === 'billed') return reservationView(r);
     if (r.status !== 'completed') throw new BadRequestException(`A ${STATUS_LABELS[r.status]} booking cannot be marked billed.`);
-    r.status = 'billed';
-    r.history.push({ from: 'completed', to: 'billed', at: new Date(), byUserId: userId, note: `Bill ${billNumber} settled` });
-    await r.save();
-    return reservationView(r);
+    // One step, so a settlement never waits on, or loses to, another change to the booking.
+    const done = await this.reservations.findOneAndUpdate(
+      { _id: r._id, tenantId, status: 'completed' },
+      {
+        $set: { status: 'billed' },
+        $push: { history: { from: 'completed', to: 'billed', at: new Date(), byUserId: userId, note: `Bill ${billNumber} settled` } },
+        $inc: { __v: 1 },
+      },
+      { returnDocument: 'after' },
+    );
+    return reservationView(done ?? (await this.get(tenantId, id)));
   }
 
   async details(tenantId: Types.ObjectId, id: string) {
@@ -260,7 +281,7 @@ export class ReservationsService {
     if (amend) {
       r.history.push({ from: r.status, to: r.status, at: new Date(), byUserId: userId, reasonId: input.amendmentReasonId, note: 'Menu changed' });
     }
-    await r.save();
+    await this.saveChecked(r);
     return this.details(tenantId, id);
   }
 
@@ -301,9 +322,11 @@ export class ReservationsService {
     await this.activeRecord(tenantId, 'hall', input.hallId, 'Hall');
     await this.activeRecord(tenantId, 'hallBlockReason', input.reasonId, 'Hall block reason');
     const slot = { hallId: input.hallId, start: input.start, end: input.end };
-    await this.checkAvailability(tenantId, [slot], null);
-    const block = await this.blocks.create({ ...slot, tenantId, reasonId: input.reasonId, notes: input.notes ?? '', byUserId: userId });
-    return blockView(block);
+    return this.withHalls(tenantId, [slot], async () => {
+      await this.checkAvailability(tenantId, [slot], null);
+      const block = await this.blocks.create({ ...slot, tenantId, reasonId: input.reasonId, notes: input.notes ?? '', byUserId: userId });
+      return blockView(block);
+    });
   }
 
   async removeBlock(tenantId: Types.ObjectId, id: string) {
@@ -428,6 +451,57 @@ export class ReservationsService {
     const def = addDays(today, settings.optionDays);
     const pick = def < byRule ? def : byRule;
     return pick < today ? today : pick;
+  }
+
+  /**
+   * Runs `work` while holding a lease on each hall, so the availability check and the save happen
+   * as one step: two people booking the same hall at the same moment cannot both get it.
+   */
+  private async withHalls<T>(tenantId: Types.ObjectId, slots: { hallId: string }[], work: () => Promise<T>): Promise<T> {
+    const halls = [...new Set(slots.map((s) => s?.hallId).filter((h): h is string => typeof h === 'string'))].sort();
+    if (!halls.length) return work();
+    const owner = new Types.ObjectId().toHexString();
+    const held: string[] = [];
+    try {
+      for (const hallId of halls) {
+        await this.lockHall(tenantId, hallId, owner);
+        held.push(hallId);
+      }
+      return await work();
+    } finally {
+      if (held.length) await this.locks.updateMany({ tenantId, hallId: { $in: held }, owner }, { $set: { until: new Date(0) } });
+    }
+  }
+
+  private async lockHall(tenantId: Types.ObjectId, hallId: string, owner: string) {
+    const giveUp = Date.now() + HALL_LOCK_WAIT_MS;
+    for (;;) {
+      const now = new Date();
+      try {
+        // Takes a free (or expired) lease; while someone holds it, the upsert hits the unique index.
+        await this.locks.updateOne(
+          { tenantId, hallId, until: { $lte: now } },
+          { $set: { owner, until: new Date(now.getTime() + HALL_LOCK_LEASE_MS) } },
+          { upsert: true },
+        );
+        return;
+      } catch (err) {
+        if ((err as { code?: number }).code !== 11000) throw err;
+      }
+      if (Date.now() > giveUp) throw new ConflictException('Someone else is booking this hall right now. Please try again.');
+      await pause(10 + Math.random() * 40);
+    }
+  }
+
+  /** Saves the booking only if nobody else saved it since it was read. */
+  private async saveChecked(r: ReservationDocument) {
+    r.increment();
+    try {
+      await r.save();
+    } catch (err) {
+      if (err instanceof MongooseError.VersionError) throw new ConflictException(CHANGED_ELSEWHERE);
+      throw err;
+    }
   }
 
   private async activeRecord(tenantId: Types.ObjectId, kind: string, id: unknown, label: string): Promise<MasterRecordDocument> {

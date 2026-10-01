@@ -177,7 +177,7 @@ export class BookingDetailsService {
 
   async addReceipt(tenantId: Types.ObjectId, userId: string, r: ReservationDocument, input: ReceiptInput) {
     const problems: string[] = [];
-    if (typeof input.amount !== 'number' || !Number.isFinite(input.amount) || input.amount <= 0) problems.push('Amount must be more than 0.');
+    if (typeof input.amount !== 'number' || !Number.isFinite(input.amount) || round2(input.amount) <= 0) problems.push('Amount must be more than 0.');
     if (!SETTLEMENT_MODES.includes(input.mode)) problems.push('Choose how the money was paid.');
     const date = input.date || today();
     if (!isDate(date) || date > today()) problems.push('Receipt date must be today or earlier.');

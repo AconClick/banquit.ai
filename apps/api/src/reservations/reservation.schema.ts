@@ -271,3 +271,25 @@ export class Counter {
 
 export const CounterSchema = SchemaFactory.createForClass(Counter);
 CounterSchema.index({ tenantId: 1, name: 1 }, { unique: true });
+
+/**
+ * A short lease on a hall while a booking or block for it is checked and saved, so two people
+ * cannot take the same hall at the same moment, even on different servers.
+ */
+@Schema()
+export class HallLock {
+  @Prop({ type: Types.ObjectId, required: true })
+  tenantId: Types.ObjectId;
+
+  @Prop({ required: true })
+  hallId: string;
+
+  @Prop({ required: true })
+  owner: string;
+
+  @Prop({ required: true })
+  until: Date;
+}
+
+export const HallLockSchema = SchemaFactory.createForClass(HallLock);
+HallLockSchema.index({ tenantId: 1, hallId: 1 }, { unique: true });
