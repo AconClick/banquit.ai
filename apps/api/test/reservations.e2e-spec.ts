@@ -1,4 +1,4 @@
-import { startApp } from './helpers.js';
+import { startApp, tokenOf } from './helpers.js';
 
 describe('Reservations and the diary', () => {
   let t: Awaited<ReturnType<typeof startApp>>;
@@ -28,7 +28,7 @@ describe('Reservations and the diary', () => {
     ids.blockReason = await master('hallBlockReason', { description: 'Maintenance' });
     // The reservation screens live in the Operations panel.
     const login = await t.http().post('/api/auth/login').set('Host', host).send({ userId: 'entp', password: 'Start2026x' }).expect(200);
-    token = (await t.http().post('/api/auth/activity').set('Host', host).auth(login.body.token, auth).send({ activity: 'operations' }).expect(200)).body.token;
+    token = tokenOf(await t.http().post('/api/auth/activity').set('Host', host).auth(tokenOf(login), auth).send({ activity: 'operations' }).expect(200));
   });
   afterAll(() => t.close());
 

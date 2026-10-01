@@ -1,11 +1,15 @@
-import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards, UseInterceptors } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { CurrentAuth, CurrentTenant, type AuthContext } from '../common/request-context.js';
 import type { TenantDocument } from '../tenants/tenant.schema.js';
 import { AllowNoActivity, AuthGuard, NotForSupport, SupportReadOk } from './auth.guard.js';
 import { AuthService } from './auth.service.js';
+import { clearSessionCookie, requestToken, SessionCookieInterceptor, setSessionCookie } from './session-cookie.js';
 import { ActivityDto, ChangePasswordDto, ForgotPasswordDto, LoginDto, OtpDto, ResetPasswordDto } from './dto.js';
 
+/** Every route that returns a new session token hands it over as the session cookie instead. */
 @Controller('auth')
+@UseInterceptors(SessionCookieInterceptor)
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
@@ -54,8 +58,24 @@ export class AuthController {
   @UseGuards(AuthGuard)
   @AllowNoActivity()
   @SupportReadOk()
-  async logout(@CurrentAuth() auth: AuthContext) {
+  async logout(@CurrentAuth() auth: AuthContext, @Res({ passthrough: true }) res: Response) {
     await this.auth.logout(auth);
+    clearSessionCookie(res);
+  }
+
+  /**
+   * Turns a token given in the Authorization header into the session cookie. Used when Banquet.ai
+   * support enters a client's app: the console hands the token over in the link, once.
+   */
+  @Post('session-cookie')
+  @HttpCode(204)
+  @UseGuards(AuthGuard)
+  @AllowNoActivity()
+  @SupportReadOk()
+  sessionCookie(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const given = requestToken(req);
+    if (given?.from !== 'header') throw new BadRequestException('Send the token in the Authorization header.');
+    setSessionCookie(res, given.token);
   }
 
   @Post('forgot-password')

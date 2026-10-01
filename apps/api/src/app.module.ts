@@ -9,6 +9,7 @@ import { Bill, BillSchema } from './billing/bill.schema.js';
 import { BillingController } from './billing/billing.controller.js';
 import { BillingService } from './billing/billing.service.js';
 import { BOOKING_SOURCE, ReservationBookingSource } from './billing/booking-source.js';
+import { RateLimiter, RateLimitMiddleware } from './common/rate-limit.js';
 import { TenantMiddleware } from './common/request-context.js';
 import { MasterRecord, MasterRecordSchema } from './masters/master-record.schema.js';
 import { MastersController } from './masters/masters.controller.js';
@@ -61,10 +62,10 @@ import { UsersService } from './users/users.service.js';
   controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController,
     SupportConsoleController, SupportSessionController, SupportAccessController, SupportStaffController],
   providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, AuthGuard,
-    BillingService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
+    RateLimiter, BillingService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
-    consumer.apply(TenantMiddleware).forRoutes('*path');
+    consumer.apply(RateLimitMiddleware, TenantMiddleware).forRoutes('*path');
   }
 }

@@ -1,6 +1,6 @@
 import { getConnectionToken } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
-import { ADMIN, startApp } from './helpers.js';
+import { ADMIN, startApp, tokenOf } from './helpers.js';
 
 describe('Banquet.ai support login', () => {
   let t: Awaited<ReturnType<typeof startApp>>;
@@ -70,7 +70,7 @@ describe('Banquet.ai support login', () => {
       .send({ name: 'Support Co', city: 'Kochi', state: 'Kerala', country: 'India' }).expect(201);
 
     // Switching panel keeps the same session.
-    inside = (await t.http().post('/api/support-session/activity').set('Host', host).auth(inside, auth).send({ activity: 'operations' }).expect(200)).body.token;
+    inside = tokenOf(await t.http().post('/api/support-session/activity').set('Host', host).auth(inside, auth).send({ activity: 'operations' }).expect(200));
     expect((await t.http().get('/api/auth/me').set('Host', host).auth(inside, auth).expect(200)).body.activity).toBe('operations');
 
     // Support never appears in the client's user list.
