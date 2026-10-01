@@ -91,6 +91,17 @@ describe('Reports', () => {
     expect(el.textContent).toContain('B/2030-31/000001');
     expect(el.textContent).toContain('Part paid');
     expect(el.querySelector('a[href="/operations/billing/b1"]')).not.toBeNull();
+
+    // With nothing billed there is no currency, so the label has no empty brackets.
+    fixture.componentInstance['load']();
+    http.expectOne((r) => r.url === '/api/reports/revenue').flush({
+      from: '2030-07-01', to: '2030-07-31', propertyId: 'p1', properties: [], currency: null, mixedCurrencies: false,
+      total: { ...sum, bills: 0, amount: 0, taxable: 0, total: 0, collected: 0, balance: 0 },
+      byProperty: [], byAType: [], bySource: [], taxes: [], bills: [],
+    });
+    await settle(fixture);
+    expect(el.textContent).toContain('Revenue before tax');
+    expect(el.textContent).not.toContain('()');
     http.verify();
   });
 });

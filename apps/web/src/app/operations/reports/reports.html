@@ -214,7 +214,7 @@
       <p class="muted">Final bills for functions between these dates, paid or not. Draft and void bills are left out.</p>
       @if (r.total; as t) {
         <div class="tiles">
-          <div class="tile"><span class="muted">Revenue before tax ({{ r.currency }})</span><strong>{{ money(t.taxable) }}</strong></div>
+          <div class="tile"><span class="muted">Revenue before tax@if (r.currency) { ({{ r.currency }})}</span><strong>{{ money(t.taxable) }}</strong></div>
           <div class="tile"><span class="muted">Tax</span><strong>{{ money(t.taxTotal) }}</strong></div>
           <div class="tile"><span class="muted">Billed</span><strong>{{ money(t.total) }}</strong></div>
           <div class="tile"><span class="muted">Collected</span><strong>{{ money(t.collected) }}</strong></div>
