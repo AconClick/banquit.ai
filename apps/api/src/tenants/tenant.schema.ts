@@ -50,6 +50,10 @@ export class Tenant {
 
   @Prop({ type: [CustomDomain], default: [] })
   customDomains: CustomDomain[];
+
+  /** How Banquet.ai support may enter: at any time (client is told), or only after the client approves. */
+  @Prop({ type: String, default: 'allowed' })
+  supportAccess: 'allowed' | 'ask';
 }
 
 export type TenantDocument = HydratedDocument<Tenant>;

@@ -7,7 +7,10 @@ import { authRules } from '../config.js';
 import type { AppRequest } from '../common/request-context.js';
 import { Role } from '../roles/role.schema.js';
 import { PERMISSIONS, type Activity, type Permission } from '../roles/permissions.js';
-import { User } from '../users/user.schema.js';
+import { SupportSession } from '../support/support.schema.js';
+import { isExpired, supportIdentity, type SupportSessionTokenPayload } from '../support/support.service.js';
+import { User, type UserDocument } from '../users/user.schema.js';
+import type { RoleDocument } from '../roles/role.schema.js';
 
 export interface TokenPayload {
   sub: string;
@@ -18,11 +21,17 @@ export interface TokenPayload {
 
 const PERMISSION_KEY = 'permission';
 const ALLOW_NO_ACTIVITY_KEY = 'allowNoActivity';
+const NOT_FOR_SUPPORT_KEY = 'notForSupport';
+const SUPPORT_READ_OK_KEY = 'supportReadOk';
 
 /** The route needs this permission, and the session must be in the panel the permission belongs to. */
 export const RequirePermission = (permission: Permission) => SetMetadata(PERMISSION_KEY, permission);
 /** The route can be used straight after password check, before an Activity is chosen. */
 export const AllowNoActivity = () => SetMetadata(ALLOW_NO_ACTIVITY_KEY, true);
+/** A Banquet.ai support session may not use this route (it acts on a real user's own account). */
+export const NotForSupport = () => SetMetadata(NOT_FOR_SUPPORT_KEY, true);
+/** A read-only support session may still call this route (e.g. to switch mode or leave). */
+export const SupportReadOk = () => SetMetadata(SUPPORT_READ_OK_KEY, true);
 
 export const SESSION_MESSAGES = {
   replaced: 'You were logged out because this user signed in elsewhere.',
@@ -36,6 +45,7 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     @InjectModel(User.name) private readonly users: Model<User>,
     @InjectModel(Role.name) private readonly roles: Model<Role>,
+    @InjectModel(SupportSession.name) private readonly supportSessions: Model<SupportSession>,
   ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
@@ -43,14 +53,18 @@ export class AuthGuard implements CanActivate {
     const token = req.header('authorization')?.replace(/^Bearer\s+/i, '');
     if (!token) throw new UnauthorizedException('Please log in.');
 
-    let payload: TokenPayload;
+    let payload: TokenPayload | SupportSessionTokenPayload;
     try {
-      payload = await this.jwt.verifyAsync<TokenPayload>(token);
+      payload = await this.jwt.verifyAsync<TokenPayload | SupportSessionTokenPayload>(token);
     } catch {
       throw new UnauthorizedException('Your session has expired. Please log in again.');
     }
     // A token from one tenant is never accepted on another tenant's address.
     if (!req.tenant || String(req.tenant._id) !== payload.tid) throw new UnauthorizedException('Please log in.');
+    if ('typ' in payload) {
+      if (payload.typ !== 'support-session') throw new UnauthorizedException('Please log in.');
+      return this.supportSession(ctx, req, payload);
+    }
 
     const user = await this.users.findOne({ _id: payload.sub, tenantId: req.tenant._id }).select('+sessionId');
     if (!user || !user.active) throw new UnauthorizedException('Please log in.');
@@ -73,14 +87,45 @@ export class AuthGuard implements CanActivate {
     if (!payload.act && !allowNoActivity) throw new ForbiddenException('Choose Operations or Master first.');
     if (user.mustChangePassword && !allowNoActivity) throw new ForbiddenException('Please change your password first.');
 
-    const permission = this.reflector.getAllAndOverride<Permission>(PERMISSION_KEY, handlers);
-    if (permission) {
-      const needed = (Object.keys(PERMISSIONS) as Activity[]).find((a) =>
-        (PERMISSIONS[a] as readonly string[]).includes(permission),
+    this.checkPermission(ctx, payload.act, role.permissions);
+    return true;
+  }
+
+  /**
+   * Banquet.ai support inside a tenant (login-and-tenancy.md section 6): the session must be
+   * live, is read-only until switched to edit mode, and every change is recorded against it.
+   */
+  private async supportSession(ctx: ExecutionContext, req: AppRequest, payload: SupportSessionTokenPayload) {
+    const s = await this.supportSessions.findOne({ _id: payload.sub, tenantId: req.tenant!._id });
+    if (!s || s.status !== 'active' || isExpired(s)) {
+      throw new UnauthorizedException('The Banquet.ai support session has ended.');
+    }
+    const handlers = [ctx.getHandler(), ctx.getClass()];
+    if (this.reflector.getAllAndOverride<boolean>(NOT_FOR_SUPPORT_KEY, handlers)) {
+      throw new ForbiddenException('Not available in a Banquet.ai support session.');
+    }
+    const { user, role } = supportIdentity(s);
+    req.auth = { user: user as unknown as UserDocument, role: role as unknown as RoleDocument, activity: payload.act, support: s };
+    this.checkPermission(ctx, payload.act, role.permissions);
+
+    const changes = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+    if (changes && !this.reflector.getAllAndOverride<boolean>(SUPPORT_READ_OK_KEY, handlers)) {
+      if (s.mode !== 'edit') {
+        throw new ForbiddenException('This support session is read-only. Switch to edit mode and say what you will change first.');
+      }
+      await this.supportSessions.updateOne(
+        { _id: s._id },
+        { $push: { actions: { at: new Date(), method: req.method, path: req.originalUrl.split('?')[0].slice(0, 200) } } },
       );
-      if (payload.act !== needed) throw new ForbiddenException(`Open the ${needed} panel to do this.`);
-      if (!role.permissions.includes(permission)) throw new ForbiddenException('You do not have access to this.');
     }
     return true;
+  }
+
+  private checkPermission(ctx: ExecutionContext, act: Activity | undefined, permissions: readonly string[]) {
+    const permission = this.reflector.getAllAndOverride<Permission>(PERMISSION_KEY, [ctx.getHandler(), ctx.getClass()]);
+    if (!permission) return;
+    const needed = (Object.keys(PERMISSIONS) as Activity[]).find((a) => (PERMISSIONS[a] as readonly string[]).includes(permission));
+    if (act !== needed) throw new ForbiddenException(`Open the ${needed} panel to do this.`);
+    if (!permissions.includes(permission)) throw new ForbiddenException('You do not have access to this.');
   }
 }

@@ -22,6 +22,9 @@ import { ProvisioningService } from './platform/provisioning.service.js';
 import { Role, RoleSchema } from './roles/role.schema.js';
 import { RolesController } from './roles/roles.controller.js';
 import { RolesService } from './roles/roles.service.js';
+import { SupportAccessController, SupportConsoleController, SupportConsoleGuard, SupportSessionController, SupportStaffController } from './support/support.controller.js';
+import { SupportSession, SupportSessionSchema, SupportUser, SupportUserSchema } from './support/support.schema.js';
+import { SupportService } from './support/support.service.js';
 import { Tenant, TenantSchema } from './tenants/tenant.schema.js';
 import { TenantsService } from './tenants/tenants.service.js';
 import { User, UserSchema } from './users/user.schema.js';
@@ -41,12 +44,16 @@ import { UsersService } from './users/users.service.js';
       { name: Counter.name, schema: CounterSchema },
       { name: PropertyRate.name, schema: PropertyRateSchema },
       { name: PropertySettings.name, schema: PropertySettingsSchema },
+      { name: SupportUser.name, schema: SupportUserSchema },
+      { name: SupportSession.name, schema: SupportSessionSchema },
     ]),
     JwtModule.register({ secret: config.jwtSecret, signOptions: { expiresIn: `${authRules.maxSessionHours}h` } }),
     NotificationsModule,
   ],
-  controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController],
-  providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, AuthGuard],
+  controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController,
+    SupportConsoleController, SupportSessionController, SupportAccessController, SupportStaffController],
+  providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, AuthGuard,
+    SupportService, SupportConsoleGuard],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

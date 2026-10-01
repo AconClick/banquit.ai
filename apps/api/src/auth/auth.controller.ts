@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { CurrentAuth, CurrentTenant, type AuthContext } from '../common/request-context.js';
 import type { TenantDocument } from '../tenants/tenant.schema.js';
-import { AllowNoActivity, AuthGuard } from './auth.guard.js';
+import { AllowNoActivity, AuthGuard, NotForSupport, SupportReadOk } from './auth.guard.js';
 import { AuthService } from './auth.service.js';
 import { ActivityDto, ChangePasswordDto, ForgotPasswordDto, LoginDto, OtpDto, ResetPasswordDto } from './dto.js';
 
@@ -26,6 +26,7 @@ export class AuthController {
   @HttpCode(200)
   @UseGuards(AuthGuard)
   @AllowNoActivity()
+  @NotForSupport()
   changePassword(@CurrentAuth() auth: AuthContext, @Body() body: ChangePasswordDto) {
     return this.auth.changePassword(auth, body.currentPassword, body.newPassword);
   }
@@ -34,6 +35,7 @@ export class AuthController {
   @HttpCode(200)
   @UseGuards(AuthGuard)
   @AllowNoActivity()
+  @NotForSupport()
   activity(@CurrentAuth() auth: AuthContext, @Body() body: ActivityDto) {
     return this.auth.chooseActivity(auth, body.activity);
   }
@@ -42,6 +44,7 @@ export class AuthController {
   @HttpCode(200)
   @UseGuards(AuthGuard)
   @AllowNoActivity()
+  @NotForSupport()
   verifyOtp(@CurrentAuth() auth: AuthContext, @Body() body: OtpDto) {
     return this.auth.verifyOtp(auth, body.code);
   }
@@ -50,6 +53,7 @@ export class AuthController {
   @HttpCode(204)
   @UseGuards(AuthGuard)
   @AllowNoActivity()
+  @SupportReadOk()
   async logout(@CurrentAuth() auth: AuthContext) {
     await this.auth.logout(auth);
   }

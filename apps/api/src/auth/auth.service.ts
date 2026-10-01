@@ -58,6 +58,9 @@ export class AuthService {
   }
 
   async me(auth: AuthContext) {
+    if (auth.support) {
+      return { user: auth.user, role: auth.role, activity: auth.activity ?? null, activities: activitiesFor(auth.role.permissions), support: true };
+    }
     return {
       user: publicUser(auth.user),
       role: { id: auth.role.id as string, name: auth.role.name, permissions: auth.role.permissions },
@@ -127,6 +130,13 @@ export class AuthService {
   }
 
   async logout(auth: AuthContext) {
+    if (auth.support) {
+      // Leaving a support session ends it; entering again needs a new reason.
+      auth.support.status = 'ended';
+      auth.support.endedAt = new Date();
+      await auth.support.save();
+      return;
+    }
     await this.users.updateOne({ _id: auth.user._id }, { $unset: { sessionId: 1 } });
   }
 
