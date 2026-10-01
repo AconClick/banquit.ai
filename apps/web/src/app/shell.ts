@@ -16,6 +16,7 @@ import { MastersStore } from './master/masters-store';
       @if (session.activity() !== 'master') {
         <nav>
           <a routerLink="/operations" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Reservation Diary</a>
+          <a routerLink="/operations/reports" routerLinkActive="active">Reports</a>
           <a routerLink="/operations/billing" routerLinkActive="active">Bills</a>
         </nav>
       }

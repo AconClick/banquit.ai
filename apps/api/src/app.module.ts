@@ -24,6 +24,8 @@ import { NotificationsModule } from './notifications/notifications.module.js';
 import { PlatformController, TenantsController } from './platform/platform.controller.js';
 import { ProvisioningService } from './platform/provisioning.service.js';
 import { Role, RoleSchema } from './roles/role.schema.js';
+import { ReportsController } from './reports/reports.controller.js';
+import { ReportsService } from './reports/reports.service.js';
 import { RolesController } from './roles/roles.controller.js';
 import { RolesService } from './roles/roles.service.js';
 import { Tenant, TenantSchema } from './tenants/tenant.schema.js';
@@ -50,8 +52,8 @@ import { UsersService } from './users/users.service.js';
     JwtModule.register({ secret: config.jwtSecret, signOptions: { expiresIn: `${authRules.maxSessionHours}h` } }),
     NotificationsModule,
   ],
-  controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, BillingController],
-  providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, AuthGuard,
+  controllers: [TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController],
+  providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, AuthGuard,
     BillingService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }],
 })
 export class AppModule implements NestModule {
