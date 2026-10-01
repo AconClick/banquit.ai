@@ -69,7 +69,7 @@ label.choice span { display: flex; flex-direction: column; }
 .topbar nav a { text-decoration: none; color: var(--text); padding: 0.35rem 0.6rem; border-radius: 6px; }
 .topbar nav a.active { background: var(--info-bg); color: var(--primary); }
 .spacer { flex: 1; }
-.content { padding: 1.25rem 16px; max-width: 1200px; margin: 0 auto; }
+.content { padding: 1.25rem 16px; max-width: 1200px; margin: 0 auto; width: 100%; }
 .page-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 .page-head h1 { margin: 0; }
 
@@ -85,3 +85,4 @@ label.choice span { display: flex; flex-direction: column; }
 .grid tr.inactive td { color: var(--muted); }
 .right { text-align: right; }
 .nowrap { white-space: nowrap; }
+label + select { margin: -0.6rem 0 0.9rem; width: 100%; }

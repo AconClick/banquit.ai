@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 import { activityGuard } from './core/guards';
 import { Login } from './login/login';
 import { PasswordReset } from './login/password-reset';
+import { MasterPage } from './master/master-page';
 import { RolesPage } from './master/roles-page';
 import { UsersPage } from './master/users-page';
 import { OperationsHome } from './operations/operations-home';
@@ -25,6 +26,7 @@ export const routes: Routes = [
       { path: '', pathMatch: 'full', redirectTo: 'users' },
       { path: 'users', component: UsersPage, title: 'Users · Banquet.ai' },
       { path: 'roles', component: RolesPage, title: 'Roles · Banquet.ai' },
+      { path: 'data/:kind', component: MasterPage, title: 'Master setup · Banquet.ai' },
     ],
   },
   { path: '', pathMatch: 'full', redirectTo: 'login' },
