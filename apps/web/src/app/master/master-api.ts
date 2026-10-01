@@ -44,4 +44,5 @@ export const PERMISSION_LABELS: Record<string, string> = {
   'reservations.manage': 'Create and change reservations',
   'reservations.confirmWithoutAdvance': 'Confirm bookings without the full advance (with a note)',
   'billing.manage': 'Billing and settlement',
+  'billing.approve': 'Finalise and void bills',
 };
