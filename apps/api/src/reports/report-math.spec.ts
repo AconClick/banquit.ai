@@ -191,4 +191,18 @@ describe('report calculations', () => {
     const mixed = math.withCreditNotes(report, notes, sources, new Map([['p1', 'INR'], ['p2', 'AED']]), ['p1', 'p2'], '2030-07-01', '2030-07-31', empty);
     expect(mixed).toMatchObject({ mixedCurrencies: true, total: null, byAType: [], taxes: [] });
   });
+
+  it('keeps a three-decimal currency to the fils', () => {
+    const totals = {
+      amount: 10.125, discount: 0, taxable: 10.125, taxTotal: 0, roundOff: 0, total: 10.125, taxes: [],
+      lines: [{ aType: 'package', source: 'package', taxable: 10.125, taxes: [], total: 10.125 }],
+    };
+    const bill = (id: string): math.BillLike => ({
+      id, number: id, propertyId: 'p1', reservationId: 'r', reservationNumber: 'R-1', hostName: 'Host', functionDate: '2030-07-01', status: 'finalised',
+      totals, advances: [{ amount: 0.001 }], payments: [],
+    });
+    const report = math.revenue([bill('b1'), bill('b2')], new Map([['p1', 'KWD']]), '2030-07-01', '2030-07-31');
+    expect(report.total).toMatchObject({ total: 20.25, collected: 0.002, balance: 20.248 });
+    expect(report.byAType[0]).toMatchObject({ total: 20.25 });
+  });
 });

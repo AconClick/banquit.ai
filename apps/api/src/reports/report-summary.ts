@@ -1,3 +1,4 @@
+import { roundTo } from '../pricing/money.js';
 import { RESERVATION_STATUSES, type ReservationStatus } from '../reservations/reservation.schema.js';
 import { addDays, addMinutes } from '../reservations/local-time.js';
 import {
@@ -288,7 +289,11 @@ const addSplit = (into: Record<string, RevenueSplit>, key: string, s: RevenueSpl
   row.tax += s.tax;
   row.total += s.total;
 };
-const money = (n: number) => Math.round(n * 100) / 100;
+/**
+ * Rounds a sum of amounts. Amounts carry at most 3 decimals (KWD, BHD, OMR), so a sum rounded
+ * to 3 drops only floating-point noise and keeps every currency's own decimals.
+ */
+const money = (n: number) => roundTo(n, 3);
 
 export const collectedOf = (b: Pick<BillLike, 'advances' | 'payments'>) =>
   b.advances.reduce((s, a) => s + a.amount, 0) + b.payments.reduce((s, p) => s + (p.kind === 'refund' ? -p.amount : p.amount), 0);

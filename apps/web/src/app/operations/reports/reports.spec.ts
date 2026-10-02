@@ -107,6 +107,15 @@ describe('Reports', () => {
     await settle(fixture);
     expect(el.textContent).toContain('Revenue before tax');
     expect(el.textContent).not.toContain('()');
+
+    // A dinar shows its three decimals.
+    fixture.componentInstance['load']();
+    http.expectOne((r) => r.url === '/api/reports/revenue').flush({
+      from: '2030-07-01', to: '2030-07-31', propertyId: 'p1', properties: [], currency: 'KWD', mixedCurrencies: false,
+      total: { ...sum, total: 10.125 }, byProperty: [], byAType: [], bySource: [], taxes: [], billCount: 0, billLimit: 500, bills: [],
+    });
+    await settle(fixture);
+    expect(el.textContent).toContain('10.125');
     http.verify();
   });
 

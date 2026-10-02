@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { errorMessage } from '../../core/api.interceptor';
+import { formatMoney } from '../../core/money';
 import { MasterRecord, MastersStore } from '../../master/masters-store';
 import { STATUS_LABELS, addDays, parseDate, toDate } from '../diary/diary-api';
 import {
@@ -181,9 +182,12 @@ export class Reports implements OnInit {
     finalised: 'Final, unpaid', partiallySettled: 'Part paid', settled: 'Settled',
   };
 
-  /** Amounts with two decimals, grouped the viewer's way; the currency code is shown beside them. */
-  protected money(n: number) {
-    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  /**
+   * Amounts to their currency's decimals (3 for KWD, 0 for JPY), grouped the viewer's way; the
+   * currency code is shown beside them. Without a currency, the report's own is used.
+   */
+  protected money(n: number, currency?: string | null) {
+    return formatMoney(n, currency ?? this.revenue()?.currency);
   }
 
   protected print() {
