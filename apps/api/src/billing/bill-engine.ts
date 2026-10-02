@@ -4,6 +4,7 @@
  * the same priceLine as the booking's proforma, so the proforma and the bill always agree.
  */
 
+import { rounder } from '../pricing/money.js';
 import { priceLine, round2, type TaxRate } from '../pricing/proforma.js';
 
 export { round2, type TaxRate };
@@ -87,9 +88,9 @@ export interface BillInput {
   paid?: number;
   /** Booking-level expected max, for the "more guests than expected" warning. */
   expectedMaxPax?: number;
+  /** Decimals of the currency (pricing/money.ts): 2 for INR, 3 for KWD. Default 2. */
+  decimals?: number;
 }
-
-const sum = (ns: number[]) => round2(ns.reduce((s, n) => s + n, 0));
 
 /** Billable pax = max(guaranteed, actual). Before the actual count is entered, the guarantee. */
 export const billablePax = (guaranteed: number, actual: number | null | undefined) =>
@@ -97,10 +98,10 @@ export const billablePax = (guaranteed: number, actual: number | null | undefine
 
 export const lineQty = (l: BillLineInput) => (l.source === 'package' ? billablePax(l.guaranteedPax ?? 0, l.actualPax) : l.qty);
 
-const discountOn = (amount: number, d: Discount | null | undefined) => {
+const discountOn = (amount: number, d: Discount | null | undefined, round = round2) => {
   if (!d || !(d.value > 0)) return 0;
   const value = d.type === 'percent' ? (amount * Math.min(d.value, 100)) / 100 : d.value;
-  return round2(Math.min(amount, value));
+  return round(Math.min(amount, value));
 };
 
 /**
@@ -108,37 +109,40 @@ const discountOn = (amount: number, d: Discount | null | undefined) => {
  * discounted inclusive amount, and the taxable value is worked back from it (open-questions.md,
  * section 4: discount the inclusive rate, then back-calculate).
  */
-function taxLine(net: number, qty: number, l: BillLineInput) {
-  const priced = priceLine({ label: l.label, aType: l.aType, qty, rate: qty > 0 ? net / qty : 0, taxInclusive: l.taxInclusive, taxes: l.taxes });
+function taxLine(net: number, qty: number, l: BillLineInput, decimals: number) {
+  const priced = priceLine({ label: l.label, aType: l.aType, qty, rate: qty > 0 ? net / qty : 0, taxInclusive: l.taxInclusive, taxes: l.taxes }, decimals);
   return { taxable: priced.taxable, taxes: priced.taxes };
 }
 
 export function calculateBill(input: BillInput): BillTotals {
+  const decimals = input.decimals ?? 2;
+  const round = rounder(decimals);
+  const sum = (ns: number[]) => round(ns.reduce((s, n) => s + n, 0));
   const warnings: string[] = [];
   const base = input.lines.map((l) => {
     const qty = lineQty(l);
-    const amount = round2(qty * l.rate);
-    const lineDiscount = discountOn(amount, l.discount);
-    return { l, qty, amount, lineDiscount, net: round2(amount - lineDiscount) };
+    const amount = round(qty * l.rate);
+    const lineDiscount = discountOn(amount, l.discount, round);
+    return { l, qty, amount, lineDiscount, net: round(amount - lineDiscount) };
   });
 
   // The bill discount is shared across lines in proportion to their amount after line discounts.
-  // Rounding leaves a few paise over or short; they go to the largest lines that can take them, so
+  // Rounding leaves a few paise (or fils) over or short; they go to the largest lines that can take them, so
   // no line is ever discounted below zero.
   const netTotal = sum(base.map((b) => b.net));
-  const billDiscount = discountOn(netTotal, input.billDiscount);
-  const shares = base.map((b) => (billDiscount > 0 && netTotal > 0 ? Math.min(b.net, round2((billDiscount * b.net) / netTotal)) : 0));
-  let left = round2(billDiscount - sum(shares));
+  const billDiscount = discountOn(netTotal, input.billDiscount, round);
+  const shares = base.map((b) => (billDiscount > 0 && netTotal > 0 ? Math.min(b.net, round((billDiscount * b.net) / netTotal)) : 0));
+  let left = round(billDiscount - sum(shares));
   for (const i of base.map((_, i) => i).sort((x, y) => base[y].net - base[x].net)) {
     if (left === 0) break;
-    const take = left > 0 ? Math.min(left, round2(base[i].net - shares[i])) : Math.max(left, -shares[i]);
-    shares[i] = round2(shares[i] + take);
-    left = round2(left - take);
+    const take = left > 0 ? Math.min(left, round(base[i].net - shares[i])) : Math.max(left, -shares[i]);
+    shares[i] = round(shares[i] + take);
+    left = round(left - take);
   }
 
   const lines: PricedBillLine[] = base.map((b, i) => {
-    const net = round2(b.net - shares[i]);
-    const { taxable, taxes } = taxLine(net, b.qty, b.l);
+    const net = round(b.net - shares[i]);
+    const { taxable, taxes } = taxLine(net, b.qty, b.l, decimals);
     return {
       id: b.l.id,
       source: b.l.source,
@@ -150,10 +154,10 @@ export function calculateBill(input: BillInput): BillTotals {
       rate: b.l.rate,
       taxInclusive: b.l.taxInclusive,
       amount: b.amount,
-      discount: round2(b.lineDiscount + shares[i]),
+      discount: round(b.lineDiscount + shares[i]),
       taxable,
       taxes,
-      total: round2(taxable + sum(taxes.map((t) => t.amount))),
+      total: round(taxable + sum(taxes.map((t) => t.amount))),
     };
   });
 
@@ -161,16 +165,16 @@ export function calculateBill(input: BillInput): BillTotals {
   for (const l of lines) {
     for (const t of l.taxes) {
       const s = byTax.get(t.id) ?? { id: t.id, name: t.name, amount: 0 };
-      s.amount = round2(s.amount + t.amount);
+      s.amount = round(s.amount + t.amount);
       byTax.set(t.id, s);
     }
   }
   const taxable = sum(lines.map((l) => l.taxable));
   const taxTotal = sum([...byTax.values()].map((t) => t.amount));
-  const gross = round2(taxable + taxTotal);
+  const gross = round(taxable + taxTotal);
   const total = input.roundTotal ? Math.round(gross) : gross;
-  const advances = round2(input.advances ?? 0);
-  const paid = round2(input.paid ?? 0);
+  const advances = round(input.advances ?? 0);
+  const paid = round(input.paid ?? 0);
 
   const packages = input.lines.filter((l) => l.source === 'package');
   for (const l of packages) {
@@ -188,11 +192,11 @@ export function calculateBill(input: BillInput): BillTotals {
     taxable,
     taxes: [...byTax.values()],
     taxTotal,
-    roundOff: round2(total - gross),
+    roundOff: round(total - gross),
     total,
     advances,
     paid,
-    balance: round2(total - advances - paid),
+    balance: round(total - advances - paid),
     warnings,
   };
 }

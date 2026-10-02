@@ -42,8 +42,8 @@ import { BILL_STATUS_LABELS, BillListRow, BillStatus, BillingApi, money } from '
               <td>{{ b.hostName }}</td>
               <td>{{ b.functionDate }}</td>
               <td><span class="pill">{{ labels[b.status] }}</span></td>
-              <td class="num">{{ money(b.total) }}</td>
-              <td class="num">{{ b.balance === null ? '' : money(b.balance) }}</td>
+              <td class="num">@if (b.currency && b.total !== null) { <span class="muted cur">{{ b.currency }}</span> }{{ money(b.total, b.currency) }}</td>
+              <td class="num">{{ b.balance === null ? '' : money(b.balance, b.currency) }}</td>
             </tr>
           } @empty {
             <tr><td colspan="7" class="muted">{{ loading() ? 'Loading…' : 'No bills match.' }}</td></tr>
@@ -60,6 +60,7 @@ import { BILL_STATUS_LABELS, BillListRow, BillStatus, BillingApi, money } from '
     th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); }
     th { font-weight: 500; color: var(--muted); font-size: 0.8rem; }
     .small { font-size: 0.8rem; }
+    .cur { font-size: 0.75rem; margin-right: 0.35rem; }
   `,
 })
 export class BillsPage implements OnInit {

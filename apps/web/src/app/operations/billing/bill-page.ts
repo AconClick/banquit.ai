@@ -72,7 +72,6 @@ export class BillPage implements OnInit {
   protected readonly busy = signal(false);
   protected readonly dirty = signal(false);
 
-  protected readonly money = money;
   protected readonly statusLabels = BILL_STATUS_LABELS;
   protected readonly bookingLabels = STATUS_LABELS as Record<string, string>;
   protected readonly sourceLabels = SOURCE_LABELS;
@@ -90,7 +89,10 @@ export class BillPage implements OnInit {
   protected readonly isDraft = computed(() => this.bill()?.status === 'draft');
   protected readonly canPay = computed(() => ['finalised', 'partiallySettled'].includes(this.bill()?.status ?? ''));
   protected readonly property = computed(() => this.lookups()['property']?.find((p) => p.id === this.view()?.booking.propertyId));
-  protected readonly currency = computed(() => String(this.property()?.['currency'] ?? ''));
+  protected readonly currency = computed(() => this.bill()?.currency ?? this.view()?.currency ?? String(this.property()?.['currency'] ?? ''));
+  /** Amounts to the bill's currency decimals: 3 for KWD, BHD and OMR. */
+  protected readonly decimals = computed(() => this.bill()?.decimals ?? this.view()?.decimals ?? 2);
+  protected readonly money = (n: number | null | undefined) => money(n, this.decimals());
   /** Taxes set up for this booking's property. */
   protected readonly taxes = computed(() => {
     const pid = this.view()?.booking.propertyId;

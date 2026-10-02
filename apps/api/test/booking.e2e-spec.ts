@@ -1,6 +1,7 @@
 import { getConnectionToken } from '@nestjs/mongoose';
 import { Types, type Connection } from 'mongoose';
 import { ReservationsService } from '../src/reservations/reservations.service.js';
+import { todayIn } from '../src/reservations/local-time.js';
 import { startApp, tokenOf } from './helpers.js';
 
 const addDays = (date: string, days: number) => {
@@ -8,7 +9,8 @@ const addDays = (date: string, days: number) => {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 };
-const today = () => new Date().toISOString().slice(0, 10);
+/** The hotel's date, not the UTC date: the test properties use the default time zone (Asia/Kolkata). */
+const today = () => todayIn('Asia/Kolkata');
 
 describe('Property prices, booking menus, advances and cancellation', () => {
   let t: Awaited<ReturnType<typeof startApp>>;
