@@ -80,6 +80,7 @@ export class BillingService {
     return {
       booking: this.bookingView(booking),
       ...money,
+      print: await this.setup.print(tenantId, booking.propertyId),
       proforma: { ...(await this.source.proforma(tenantId, booking.id)), advances: rounder(money.decimals)(booking.receipts.reduce((s, r) => s + r.amount, 0)) },
       bill: current ? await this.view(tenantId, current, booking) : null,
       voided: bills.filter((b) => b.status === 'void').map((b) => ({ id: b.id as string, number: b.number ?? null, voidReason: b.voidReason ?? '' })),

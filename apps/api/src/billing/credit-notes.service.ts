@@ -61,7 +61,7 @@ export class CreditNotesService {
   async get(tenantId: Types.ObjectId, id: string) {
     const note = Types.ObjectId.isValid(id) ? await this.notes.findOne({ tenantId, _id: id }) : null;
     if (!note) throw new NotFoundException('Credit note not found.');
-    return this.view(note);
+    return { ...this.view(note), print: await this.setup.print(tenantId, note.propertyId) };
   }
 
   async issue(tenantId: Types.ObjectId, userId: string, billId: string, input: CreditNoteInput) {

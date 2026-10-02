@@ -2,6 +2,7 @@ import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { formatMoney } from '../../core/money';
+import type { PrintSetup } from '../../master/billing-setup-api';
 import type { AType, Proforma, TaxAmount } from '../booking/booking-api';
 
 export type BillStatus = 'draft' | 'finalised' | 'partiallySettled' | 'settled' | 'void';
@@ -104,6 +105,7 @@ export interface BillingView {
   booking: BillingBooking;
   currency: string;
   decimals: number;
+  print: PrintSetup;
   proforma: Proforma & { advances: number };
   bill: Bill | null;
   voided: { id: string; number: string | null; voidReason: string }[];
@@ -145,6 +147,8 @@ export interface CreditNote {
   taxTotal: number;
   roundOff: number;
   total: number;
+  /** Included when one credit note is fetched, for printing. */
+  print?: PrintSetup;
 }
 
 /** Per bill line: charged, credited so far, and still open to credit. */

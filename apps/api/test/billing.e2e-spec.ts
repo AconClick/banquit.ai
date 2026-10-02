@@ -386,6 +386,25 @@ describe('Banquet billing: draft, final bill and settlement', () => {
     expect(v.body.message).toMatch(/Credit notes have been issued/);
   });
 
+  it('prints with the property’s Print Setup', async () => {
+    const before = (await m.get(`billing/setup/${ids.p1}`).expect(200)).body;
+    expect(before.print).toMatchObject({ logo: '', billTitle: 'Tax invoice', proformaTitle: 'Proforma invoice', showDiscountColumn: true, paperSize: 'A4' });
+    const svg = await m.put(`billing/setup/${ids.p1}`, { print: { logo: 'data:image/svg+xml;base64,PHN2Zz4=', paperSize: 'A3' } }).expect(400);
+    expect(svg.body.message).toEqual([expect.stringMatching(/paperSize must be one of the following values: A4, Letter/)]);
+    const bad = await m.put(`billing/setup/${ids.p1}`, { print: { logo: 'data:image/svg+xml;base64,PHN2Zz4=' } }).expect(400);
+    expect(bad.body.message).toEqual(['The logo must be a PNG, JPEG or WebP image.']);
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const saved = (await m.put(`billing/setup/${ids.p1}`, {
+      print: { logo: png, legalName: 'Prime Hotels Pvt Ltd', headerLines: 'MG Road, Kochi 682016\n+91 484 400 0000', registration: 'GSTIN 32ABCDE1234F1Z5',
+        billTitle: '', footer: 'Thank you for celebrating with us.', showDiscountColumn: false },
+    }).expect(200)).body;
+    // An empty title falls back to the default; the series are untouched.
+    expect(saved.print).toMatchObject({ logo: png, billTitle: 'Tax invoice', showDiscountColumn: false, footer: 'Thank you for celebrating with us.' });
+    expect(saved.series.bill.prefix).toBe('KOC/{FYSHORT}/');
+    const view = (await ops.get(`billing/reservations/${ids.r1}`).expect(200)).body;
+    expect(view.print).toMatchObject({ legalName: 'Prime Hotels Pvt Ltd', registration: 'GSTIN 32ABCDE1234F1Z5' });
+  });
+
   it('works out the financial year from the date', () => {
     expect(financialYear('2026-10-01')).toBe('2026-27');
     expect(financialYear('2027-03-31')).toBe('2026-27');

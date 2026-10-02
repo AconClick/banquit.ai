@@ -4,11 +4,12 @@ import { errorMessage } from '../../core/api.interceptor';
 import { TenantService } from '../../core/tenant.service';
 import { MasterRecord, MastersStore } from '../../master/masters-store';
 import { BillingApi, CreditNote, money } from './billing-api';
+import { DocLetterhead, DocNotes, DocPageSize } from './doc-parts';
 
 /** Printable credit note: quotes the original bill, and reverses its lines with their taxes. */
 @Component({
   selector: 'app-credit-note-print',
-  imports: [RouterLink],
+  imports: [RouterLink, DocLetterhead, DocNotes, DocPageSize],
   template: `
     @if (note(); as n) {
       <div class="toolbar no-print">
@@ -16,13 +17,11 @@ import { BillingApi, CreditNote, money } from './billing-api';
         <button class="primary" (click)="print()">Print</button>
       </div>
       <article class="doc" [class.watermark]="n.status === 'cancelled'" data-mark="CANCELLED">
+        <app-doc-page-size [size]="n.print?.paperSize" />
         <header>
-          <div>
-            <p class="org">{{ tenantName() }}</p>
-            <p class="muted">{{ property()?.['name'] }} · {{ property()?.['city'] }}, {{ property()?.['state'] }}, {{ property()?.['country'] }}</p>
-          </div>
+          <app-doc-letterhead [print]="n.print" [fallbackName]="tenantName()" [fallbackPlace]="place()" />
           <div class="title">
-            <h1>Credit note</h1>
+            <h1>{{ n.print?.creditNoteTitle || 'Credit note' }}</h1>
             <p><strong>{{ n.number }}</strong></p>
             <p class="muted">{{ n.date }}</p>
           </div>
@@ -50,7 +49,8 @@ import { BillingApi, CreditNote, money } from './billing-api';
             <dt class="grand">Credit {{ n.currency }}</dt><dd class="grand">{{ m(n.total) }}</dd>
           </dl>
         </div>
-        <footer><div>For {{ tenantName() }}</div><div>Received by</div></footer>
+        <app-doc-notes [print]="n.print" />
+        <footer><div>{{ n.print?.signatureLabel || 'Authorised signatory' }}, {{ n.print?.legalName || tenantName() }}</div><div>Received by</div></footer>
       </article>
     } @else if (error(); as e) {
       <p class="alert error" role="alert">{{ e }}</p>
@@ -65,7 +65,6 @@ import { BillingApi, CreditNote, money } from './billing-api';
       color: var(--text); opacity: 0.06; transform: rotate(-24deg); pointer-events: none; }
     header { display: flex; justify-content: space-between; gap: 1rem; border-bottom: 2px solid var(--text); padding-bottom: 0.75rem; margin-bottom: 1rem; }
     header p { margin: 0; }
-    .org { font-weight: 700; font-size: 1.15rem; }
     .title { text-align: right; }
     h1 { margin: 0 0 0.2rem; font-size: 1.3rem; }
     table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
@@ -98,6 +97,10 @@ export class CreditNotePrint implements OnInit {
   protected readonly error = signal<string | null>(null);
   protected readonly tenantName = computed(() => this.tenants.tenant()?.name ?? '');
   protected readonly property = computed(() => this.properties().find((p) => p.id === this.note()?.propertyId));
+  protected readonly place = computed(() => {
+    const p = this.property();
+    return p ? `${p['name']} · ${p['city']}, ${p['state']}, ${p['country']}` : '';
+  });
 
   async ngOnInit() {
     try {

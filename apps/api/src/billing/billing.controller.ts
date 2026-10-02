@@ -79,7 +79,26 @@ class NextNumbersDto {
   @IsOptional() @IsInt() creditNote?: number;
 }
 
+class PrintDto {
+  @IsOptional() @IsString() @MaxLength(100_000) logo?: string;
+  @IsOptional() @IsString() legalName?: string;
+  @IsOptional() @IsString() headerLines?: string;
+  @IsOptional() @IsString() registration?: string;
+  @IsOptional() @IsString() billTitle?: string;
+  @IsOptional() @IsString() proformaTitle?: string;
+  @IsOptional() @IsString() creditNoteTitle?: string;
+  @IsOptional() @IsString() proformaNote?: string;
+  @IsOptional() @IsString() bankDetails?: string;
+  @IsOptional() @IsString() terms?: string;
+  @IsOptional() @IsString() footer?: string;
+  @IsOptional() @IsString() signatureLabel?: string;
+  @IsOptional() @IsBoolean() showDiscountColumn?: boolean;
+  @IsOptional() @IsBoolean() showTaxColumn?: boolean;
+  @IsOptional() @IsIn(['A4', 'Letter']) paperSize?: 'A4' | 'Letter';
+}
+
 class SetupDto {
+  @IsOptional() @ValidateNested() @Type(() => PrintDto) print?: PrintDto;
   @IsOptional() @IsInt() fyStartMonth?: number;
   @IsOptional() @ValidateNested() @Type(() => SeriesSetDto) series?: SeriesSetDto;
   @IsOptional() @ValidateNested() @Type(() => NextNumbersDto) nextNumbers?: NextNumbersDto;
