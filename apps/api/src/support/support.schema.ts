@@ -5,6 +5,9 @@ import { HydratedDocument, Types } from 'mongoose';
  * Banquet.ai's own support staff (docs/workflows/login-and-tenancy.md, section 6). They live
  * outside every tenant, never appear in a tenant's user list and always log in with an OTP.
  */
+export type SupportRole = 'agent' | 'manager' | 'admin';
+export const SUPPORT_ROLES: SupportRole[] = ['agent', 'manager', 'admin'];
+
 @Schema({ timestamps: true })
 export class SupportUser {
   @Prop({ required: true, unique: true, lowercase: true, trim: true })
@@ -16,9 +19,12 @@ export class SupportUser {
   @Prop({ default: '', trim: true })
   mobile: string;
 
-  /** Managers may use the emergency override when a client asks to approve each session. */
+  /**
+   * Managers may use the emergency override when a client asks to approve each session. Admins can
+   * also run the admin console: clients, plans, payments, domains and support staff.
+   */
   @Prop({ type: String, required: true, default: 'agent' })
-  role: 'agent' | 'manager';
+  role: SupportRole;
 
   @Prop({ default: true })
   active: boolean;

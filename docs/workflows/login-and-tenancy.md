@@ -51,6 +51,26 @@ Both ways are supported:
 
 The admin console shows how each tenant was approved (payment reference, or the admin who approved it).
 
+### Banquet.ai admin console **[Built]**
+
+Banquet.ai staff with the **Admin** role see four more pages in the console at `/support` (section 6):
+
+- **Overview:** counts by status and billing, sign-ups waiting for approval, overdue clients, trials ending within a week, and the latest admin actions.
+- **Clients:** every tenant, searchable by name, address or contact email, filtered by status and billing. A client's page shows its contact, usage against the plan's limits, and these actions:
+  - **Approve** a pending sign-up, optionally with a plan and a free trial (days). The `entp` login is emailed as in "On approval".
+  - **Reject** a sign-up, **Suspend** an active client, or **Reactivate** a suspended one. Each needs a reason of at least 5 characters, which the client is emailed. Suspending signs out all its users and ends any support session; data is kept.
+  - **Plan and trial:** the plan and the trial end date can be changed at any time.
+  - **Record a payment** received outside the gateway (bank transfer, UPI, card, cheque...), with the period it covers. "Paid until" moves to the end of the latest period and never back.
+  - **Own domains** (section 3): add a domain, give the client the TXT and CNAME records shown, then press **Check**. The domain is verified once the TXT record `_banquet-verify.<domain>` holds the value shown. A failed check says what was found.
+- **Plans:** code, name, currency, monthly and yearly price, maximum properties and users (0 = no limit), and whether it is offered to new clients. Going over a limit is shown on the client's page; nothing is blocked.
+- **Staff:** add support staff (Agent, Manager or Admin), change roles, disable them (which ends their sessions), and email a new temporary password. Admins cannot disable or demote themselves.
+
+**Billing status** of an active client: **Paid** while "paid until" is today or later; otherwise **On trial** while the trial runs; **Overdue** once either has passed; **Not paid yet** if there was neither.
+
+Every admin action is logged with who did it and when, and shows in the client's History and on the Overview.
+
+The first admin is created with `POST /api/platform/support-users` and the platform token (role `admin`); after that, admins add staff from the console.
+
 ### On approval
 
 1. The tenant becomes **Active**.
@@ -152,7 +172,7 @@ Implementation engineers do **not** share the `entp` password. Each engineer get
 
 Banquet.ai's own support team sometimes needs to get into a client's account after go-live (to investigate a problem, fix data, or help with setup). They do **not** use `entp` or any user created inside the tenant.
 
-**[Built, with the proposed defaults]** The console is at `/support` on the common address (e.g. `app.banquet.ai/support`); it can move to `admin.banquet.ai` later without changes to the rules below. Support staff accounts are created by Banquet.ai's platform admin (`POST /api/platform/support-users`); the person gets a temporary password by email and sets their own on first login.
+**[Built, with the proposed defaults]** The console is at `/support` on the common address (e.g. `app.banquet.ai/support`); it can move to `admin.banquet.ai` later without changes to the rules below. Support staff accounts are created by a Banquet.ai admin on the console's Staff page (see "Banquet.ai admin console" in section 2); the person gets a temporary password by email and sets their own on first login. The console keeps its login in its own httpOnly cookie, separate from any client's session, and logging out of the console ends that person's open support sessions.
 
 1. **Support staff have their own Banquet.ai accounts**, managed in a separate Banquet.ai admin console (e.g. `admin.banquet.ai`), not in any tenant. These logins always need an OTP.
 2. **Entering a tenant.** From the admin console, a support person picks the tenant and enters a **reason** (and ticket number if any). The system opens that tenant's app in a **support session**.
@@ -162,7 +182,7 @@ Banquet.ai's own support team sometimes needs to get into a client's account aft
 6. **Client control.** A Master Settings option, **Banquet.ai support access**, decides how support gets in:
    - **Allowed** (default): support can enter at any time; the client is notified.
    - **Ask each time**: the client's admin must approve each request before the session opens, either in Master › Support Access or from the **approve/decline link in the request email**. The link is a random one-time token (only its hash is stored), works only on that client's address, expires after 24 hours, and stops working as soon as the request is answered either way. Opening the link only shows the request; approving needs a button press, so email scanners that open links do nothing.
-   - **Emergency override**: a Banquet.ai manager can still enter under "Ask each time" if the client cannot be reached, and the client is notified immediately.
+   - **Emergency override**: a Banquet.ai manager or admin can still enter under "Ask each time" if the client cannot be reached, and the client is notified immediately.
 7. **Support users never appear** in the tenant's User Management list and do not count towards any user licence limit.
 
 8. **Read-only by default [Built default].** A support session can only look. To change anything the support person switches to **edit mode** and gives a second reason; the switch and every change after it (what was changed and when, not the data itself) are listed in the client's Support Access log.

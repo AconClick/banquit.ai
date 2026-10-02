@@ -1,15 +1,16 @@
 import {
-  Body, CanActivate, Controller, Req, createParamDecorator, ExecutionContext, ForbiddenException, Get, HttpCode, Injectable, Param, Post, Put, Query, UnauthorizedException, UseGuards, UseInterceptors,
+  Body, CanActivate, Controller, Req, createParamDecorator, ExecutionContext, ForbiddenException, Get, HttpCode, Injectable, Param, Post, Put, Query, Res, UnauthorizedException, UseGuards, UseInterceptors,
 } from '@nestjs/common';
 import { IsBoolean, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { AuthGuard, NotForSupport, RequirePermission, SupportReadOk } from '../auth/auth.guard.js';
 import { ActivityDto, ChangePasswordDto, OtpDto } from '../auth/dto.js';
-import { SessionCookieInterceptor } from '../auth/session-cookie.js';
+import { CSRF_HEADER, SessionCookieInterceptor } from '../auth/session-cookie.js';
+import { clearConsoleCookie, ConsoleCookieInterceptor, consoleToken } from './console-cookie.js';
 import { CurrentAuth, CurrentTenant, type AppRequest, type AuthContext } from '../common/request-context.js';
 import { PlatformAdminGuard } from '../platform/platform-admin.guard.js';
 import type { TenantDocument } from '../tenants/tenant.schema.js';
-import type { SupportUserDocument } from './support.schema.js';
+import { SUPPORT_ROLES, type SupportRole, type SupportUserDocument } from './support.schema.js';
 import { SupportService, supportSessionView, supportUserView } from './support.service.js';
 
 interface ConsoleRequest extends Request {
@@ -23,15 +24,33 @@ export class SupportConsoleGuard implements CanActivate {
 
   async canActivate(ctx: ExecutionContext) {
     const req = ctx.switchToHttp().getRequest<ConsoleRequest>();
-    const token = req.header('authorization')?.replace(/^Bearer\s+/i, '');
-    if (!token) throw new UnauthorizedException('Please log in to the support console.');
-    req.supportUser = await this.support.authenticate(token);
+    const given = consoleToken(req);
+    if (!given) throw new UnauthorizedException('Please log in to the support console.');
+    // A cookie is sent by the browser on its own, so changes made with it must prove they come from our pages.
+    if (given.from === 'cookie' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method) && req.header(CSRF_HEADER) !== '1') {
+      throw new ForbiddenException('This request is missing its security header. Reload the page and try again.');
+    }
+    req.supportUser = await this.support.authenticate(given.token);
+    return true;
+  }
+}
+
+/** Console pages only Banquet.ai admins may use: clients, plans, payments, domains and staff. */
+@Injectable()
+export class AdminConsoleGuard implements CanActivate {
+  constructor(private readonly console: SupportConsoleGuard) {}
+
+  async canActivate(ctx: ExecutionContext) {
+    await this.console.canActivate(ctx);
+    if (ctx.switchToHttp().getRequest<ConsoleRequest>().supportUser?.role !== 'admin') {
+      throw new ForbiddenException('Only Banquet.ai admins can do this.');
+    }
     return true;
   }
 }
 
 /** The support user the console guard signed in. */
-const SupportUserParam = createParamDecorator((_: unknown, ctx: ExecutionContext) => ctx.switchToHttp().getRequest<ConsoleRequest>().supportUser as SupportUserDocument);
+export const SupportUserParam = createParamDecorator((_: unknown, ctx: ExecutionContext) => ctx.switchToHttp().getRequest<ConsoleRequest>().supportUser as SupportUserDocument);
 
 class ConsoleLoginDto {
   @IsEmail() email: string;
@@ -57,7 +76,7 @@ class SupportUserDto {
   @IsEmail() email: string;
   @IsString() @IsNotEmpty() @MaxLength(120) name: string;
   @IsOptional() @IsString() @MaxLength(20) mobile?: string;
-  @IsOptional() @IsIn(['agent', 'manager']) role?: 'agent' | 'manager';
+  @IsOptional() @IsIn(SUPPORT_ROLES) role?: SupportRole;
 }
 
 class AccessDto {
@@ -76,6 +95,7 @@ export class SupportConsoleController {
 
   @Post('otp/verify')
   @HttpCode(200)
+  @UseInterceptors(ConsoleCookieInterceptor)
   verifyOtp(@Body() body: ConsoleOtpDto) {
     return this.support.verifyOtp(body.otpToken, body.code);
   }
@@ -93,11 +113,13 @@ export class SupportConsoleController {
     return this.support.changePassword(user, body.currentPassword, body.newPassword);
   }
 
+  /** Ends the console login and every support session the person has open in a client's account. */
   @Post('logout')
   @HttpCode(204)
   @UseGuards(SupportConsoleGuard)
-  async logout(@SupportUserParam() user: SupportUserDocument) {
+  async logout(@SupportUserParam() user: SupportUserDocument, @Res({ passthrough: true }) res: Response) {
     await this.support.logout(user);
+    clearConsoleCookie(res);
   }
 
   @Get('tenants')

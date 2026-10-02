@@ -21,6 +21,7 @@ export class ProvisioningService {
     if (tenant.status !== 'pending') throw new ConflictException(`This account is already ${tenant.status}.`);
     tenant.status = 'active';
     tenant.approval = { method, reference, at: new Date() };
+    tenant.statusHistory.push({ from: 'pending', to: 'active', at: new Date(), by: method === 'payment' ? 'Payment confirmed' : reference, reason: method === 'payment' ? `Payment ${reference}` : 'Approved' });
     await tenant.save();
 
     const builtIns = await this.roles.ensureBuiltIns(tenant._id);
