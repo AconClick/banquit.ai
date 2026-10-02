@@ -5,6 +5,7 @@ import {
   type BillLike,
   type BlockLike,
   CONFIRMED_STATUSES,
+  creditedOf,
   type HallLike,
   type Outcome,
   REVENUE_BILL_STATUSES,
@@ -259,6 +260,8 @@ export interface RevenueSum {
   roundOff: number;
   total: number;
   collected: number;
+  /** Credit notes in force against these bills, whenever issued. */
+  credited: number;
   balance: number;
 }
 
@@ -275,7 +278,7 @@ export interface RevenueDay {
   taxes: Record<string, { name: string; amount: number }>;
 }
 
-const emptySum = (): RevenueSum => ({ bills: 0, amount: 0, discount: 0, taxable: 0, taxTotal: 0, roundOff: 0, total: 0, collected: 0, balance: 0 });
+export const emptyRevenueSum = (): RevenueSum => ({ bills: 0, amount: 0, discount: 0, taxable: 0, taxTotal: 0, roundOff: 0, total: 0, collected: 0, credited: 0, balance: 0 });
 const addSum = (into: RevenueSum, s: RevenueSum) => {
   for (const k of Object.keys(into) as (keyof RevenueSum)[]) into[k] += s[k];
 };
@@ -294,14 +297,15 @@ export const collectedOf = (b: Pick<BillLike, 'advances' | 'payments'>) =>
 export function revenueMonth(bills: BillLike[], month: string): MonthSummary<RevenueDay> {
   const { from, to } = monthBounds(month);
   const days: Days<RevenueDay> = {};
-  const total: RevenueDay = { sum: emptySum(), aType: {}, source: {}, taxes: {} };
+  const total: RevenueDay = { sum: emptyRevenueSum(), aType: {}, source: {}, taxes: {} };
   for (const b of bills) {
     if (!(REVENUE_BILL_STATUSES as readonly string[]).includes(b.status) || !b.totals || b.functionDate < from || b.functionDate > to) continue;
     const collected = collectedOf(b);
-    for (const day of [(days[b.functionDate] ??= { sum: emptySum(), aType: {}, source: {}, taxes: {} }), total]) {
+    const credited = creditedOf(b);
+    for (const day of [(days[b.functionDate] ??= { sum: emptyRevenueSum(), aType: {}, source: {}, taxes: {} }), total]) {
       addSum(day.sum, {
         bills: 1, amount: b.totals.amount, discount: b.totals.discount, taxable: b.totals.taxable, taxTotal: b.totals.taxTotal,
-        roundOff: b.totals.roundOff, total: b.totals.total, collected, balance: b.totals.total - collected,
+        roundOff: b.totals.roundOff, total: b.totals.total, collected, credited, balance: b.totals.total - collected - credited,
       });
       for (const l of b.totals.lines) {
         const split = { taxable: l.taxable, tax: l.taxes.reduce((s, t) => s + t.amount, 0), total: l.total };
@@ -329,7 +333,7 @@ export function readRevenue(summaries: { propertyId: string; days: Days<RevenueD
   for (const s of summaries) {
     for (const day of daysIn([s.days], from, to)) {
       if (!day.sum.bills) continue;
-      const sum = byProperty.get(s.propertyId) ?? emptySum();
+      const sum = byProperty.get(s.propertyId) ?? emptyRevenueSum();
       addSum(sum, day.sum);
       byProperty.set(s.propertyId, sum);
       for (const [k, v] of Object.entries(day.aType)) addSplit(aType, k, v);
@@ -346,7 +350,7 @@ export function readRevenue(summaries: { propertyId: string; days: Days<RevenueD
   const properties = [...byProperty.keys()].sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9) || a.localeCompare(b));
   const used = new Set(properties.map((p) => currencies.get(p) ?? ''));
   const oneCurrency = used.size <= 1;
-  const total = emptySum();
+  const total = emptyRevenueSum();
   for (const s of byProperty.values()) addSum(total, s);
   const splits = (rows: Record<string, RevenueSplit>, labels: Record<string, string>) =>
     Object.entries(rows)

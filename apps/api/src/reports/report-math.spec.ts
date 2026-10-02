@@ -145,4 +145,50 @@ describe('report calculations', () => {
     expect(mixed).toMatchObject({ mixedCurrencies: true, total: null, currency: null, byAType: [] });
     expect(mixed.byProperty.map((p) => [p.currency, p.total])).toEqual([['INR', 1050], ['AED', 1050]]);
   });
+
+  it('takes credit notes issued in the range off revenue, whatever the bill they credit', () => {
+    const totals = {
+      amount: 1000, discount: 0, taxable: 1000, taxTotal: 50, roundOff: 0, total: 1050,
+      taxes: [{ id: 'gst', name: 'GST 5%', amount: 50 }],
+      lines: [{ aType: 'package', source: 'package', taxable: 1000, taxes: [{ amount: 50 }], total: 1050 }],
+    };
+    const report = math.revenue(
+      [{
+        id: 'b1', number: 'B/1', propertyId: 'p1', reservationId: 'r', reservationNumber: 'R-1', hostName: 'Host', functionDate: '2030-07-01', status: 'partiallySettled',
+        totals, advances: [], payments: [{ kind: 'payment', amount: 500 }],
+        // Credits on the bill lower what is still to collect, whenever they were issued.
+        credits: [{ total: 105, status: 'issued' }, { total: 999, status: 'cancelled' }],
+      }],
+      new Map([['p1', 'INR']]), '2030-07-01', '2030-07-31',
+    );
+    expect(report.total).toMatchObject({ total: 1050, collected: 500, credited: 105, balance: 445 });
+    expect(report.bills[0]).toMatchObject({ credited: 105, balance: 445 });
+
+    const note = (over: Partial<math.CreditNoteLike>): math.CreditNoteLike => ({
+      propertyId: 'p1', billId: 'b0', date: '2030-07-10', status: 'issued',
+      totals: { taxable: 100, taxTotal: 5, total: 105, taxes: [{ id: 'gst', name: 'GST 5%', amount: 5 }], lines: [{ billLineId: 'l1', aType: 'services', taxable: 100, taxes: [{ amount: 5 }], total: 105 }] },
+      ...over,
+    });
+    const notes = [
+      note({}), // against a June bill: it still counts in July, when it was issued
+      note({ status: 'cancelled' }),
+      note({ date: '2030-08-01' }),
+      note({ propertyId: 'p2' }), // a property with no bills in the range
+    ];
+    const sources = new Map([['b0|l1', 'hallHire']]);
+    const empty = () => ({ bills: 0, amount: 0, discount: 0, taxable: 0, taxTotal: 0, roundOff: 0, total: 0, collected: 0, credited: 0, balance: 0 });
+    const net = math.withCreditNotes(report, notes, sources, new Map([['p1', 'INR'], ['p2', 'INR']]), ['p1', 'p2'], '2030-07-01', '2030-07-31', empty);
+    expect(net.total).toMatchObject({ total: 1050, creditNotes: { notes: 2, taxable: 200, taxTotal: 10, total: 210 }, net: { taxable: 800, taxTotal: 40, total: 840 } });
+    expect(net.byProperty.map((p) => [p.propertyId, p.creditNotes.total, p.net.total])).toEqual([['p1', 105, 945], ['p2', 105, -105]]);
+    expect(net.byAType).toEqual([
+      { key: 'package', label: 'Packages', taxable: 1000, tax: 50, total: 1050, creditedTaxable: 0, creditedTax: 0, credited: 0, netTaxable: 1000, netTax: 50, net: 1050 },
+      { key: 'services', label: 'Services', taxable: 0, tax: 0, total: 0, creditedTaxable: 200, creditedTax: 10, credited: 210, netTaxable: -200, netTax: -10, net: -210 },
+    ]);
+    expect(net.bySource.map((r) => [r.label, r.credited])).toEqual([['Hall hire', 210], ['Packages', 0]]);
+    expect(net.taxes).toEqual([{ id: 'gst', name: 'GST 5%', amount: 50, credited: 10, net: 40 }]);
+
+    // A property billing in another currency makes the totals per property only.
+    const mixed = math.withCreditNotes(report, notes, sources, new Map([['p1', 'INR'], ['p2', 'AED']]), ['p1', 'p2'], '2030-07-01', '2030-07-31', empty);
+    expect(mixed).toMatchObject({ mixedCurrencies: true, total: null, byAType: [], taxes: [] });
+  });
 });

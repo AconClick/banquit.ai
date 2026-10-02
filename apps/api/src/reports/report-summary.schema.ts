@@ -20,6 +20,10 @@ export class ReportSummary {
   @Prop({ required: true })
   month: string;
 
+  /** What the figures hold (SUMMARY_VERSION in report-cache.service.ts); older ones are rebuilt. */
+  @Prop()
+  v?: number;
+
   @Prop({ required: true })
   builtAt: Date;
 

@@ -33,5 +33,6 @@ export function toBillLike(b: LeanBill): BillLike {
     id: String(b._id), number: b.number ?? '', propertyId: b.propertyId, reservationId: b.reservationId,
     reservationNumber: b.reservationNumber, hostName: b.hostName, functionDate: b.functionDate, status: b.status,
     totals: b.totals as unknown as BillLike['totals'], advances: b.advances ?? [], payments: b.payments ?? [],
+    credits: (b.credits ?? []).map((c) => ({ total: c.total, status: c.status })),
   };
 }

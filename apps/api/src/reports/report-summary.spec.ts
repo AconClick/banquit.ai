@@ -45,6 +45,7 @@ function data(seed: number) {
       },
       advances: [{ amount: r.int(100_000) / 100 }],
       payments: [{ kind: r.pick(['payment', 'refund'] as const), amount: r.int(100_000) / 100 }],
+      credits: r.next() < 0.3 ? [{ total: r.int(50_000) / 100, status: r.pick(['issued', 'cancelled']) }] : [],
     };
   });
   // Each month is built from the records a month query would return, as the cache does.
@@ -118,7 +119,7 @@ describe('monthly report summaries', () => {
   }
 
   it('gives no grand total when the properties bill in different currencies', () => {
-    const day = { sum: { bills: 1, amount: 10, discount: 0, taxable: 10, taxTotal: 0, roundOff: 0, total: 10, collected: 0, balance: 10 }, aType: {}, source: {}, taxes: {} };
+    const day = { sum: { bills: 1, amount: 10, discount: 0, taxable: 10, taxTotal: 0, roundOff: 0, total: 10, collected: 0, credited: 0, balance: 10 }, aType: {}, source: {}, taxes: {} };
     const r = summary.readRevenue(
       [{ propertyId: 'p2', days: { '2030-07-01': day } }, { propertyId: 'p1', days: { '2030-07-02': day } }],
       new Map([['p1', 'INR'], ['p2', 'AED']]), ['p1', 'p2'], '2030-07-01', '2030-07-31',

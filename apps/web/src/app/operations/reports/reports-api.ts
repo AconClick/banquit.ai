@@ -100,17 +100,39 @@ export interface RevenueSum {
   roundOff: number;
   total: number;
   collected: number;
+  /** Credit notes in force against these bills, whenever issued; already out of the balance. */
+  credited: number;
   balance: number;
+}
+
+/** Credit notes issued in the range (by their own date), and the revenue left after them. */
+export interface CreditNotesOff {
+  creditNotes: { notes: number; taxable: number; taxTotal: number; total: number };
+  net: { taxable: number; taxTotal: number; total: number };
+}
+
+export interface RevenueSplit {
+  key: string;
+  label: string;
+  taxable: number;
+  tax: number;
+  total: number;
+  creditedTaxable: number;
+  creditedTax: number;
+  credited: number;
+  netTaxable: number;
+  netTax: number;
+  net: number;
 }
 
 export interface Revenue extends ReportHeader {
   currency: string | null;
   mixedCurrencies: boolean;
-  total: RevenueSum | null;
-  byProperty: (RevenueSum & { propertyId: string; currency: string })[];
-  byAType: { key: string; label: string; taxable: number; tax: number; total: number }[];
-  bySource: { key: string; label: string; taxable: number; tax: number; total: number }[];
-  taxes: { id: string; name: string; amount: number }[];
+  total: (RevenueSum & CreditNotesOff) | null;
+  byProperty: (RevenueSum & CreditNotesOff & { propertyId: string; currency: string })[];
+  byAType: RevenueSplit[];
+  bySource: RevenueSplit[];
+  taxes: { id: string; name: string; amount: number; credited: number; net: number }[];
   /** Final bills in the range; the list below holds at most `billLimit`, earliest first. */
   billCount: number;
   billLimit: number;
@@ -126,6 +148,7 @@ export interface Revenue extends ReportHeader {
     status: string;
     total: number;
     collected: number;
+    credited: number;
     balance: number;
   }[];
 }
