@@ -267,8 +267,95 @@
             </div>
           </form>
         }
-        @if ((b.status === 'finalised' || (b.status === 'partiallySettled' && !b.payments.length)) && !b.credited) {
+        @if ((b.status === 'finalised' || (b.status === 'partiallySettled' && !b.payments.length)) && !b.credited && b.gst?.eInvoice?.status !== 'generated') {
           <p class="right"><button class="link danger" (click)="confirmingVoid = true">Void this bill</button></p>
+        }
+      </section>
+    }
+
+    @if (b.gstEnabled && b.status !== 'void' && b.buyer; as buyer) {
+      <section class="card">
+        <div class="section-head">
+          <h2>GST</h2>
+          @if (b.gst; as g) {
+            <span class="muted small">{{ g.invoice.intraState ? 'CGST + SGST' : 'IGST' }} · place of supply {{ stateName(g.invoice.placeOfSupply) }}</span>
+          }
+        </div>
+        @if (editingBuyer) {
+          <form class="buyer" (ngSubmit)="saveBuyer()">
+            <div class="grid2">
+              <label>Guest GSTIN <input name="bGstin" maxlength="15" class="mono" [(ngModel)]="buyerForm.gstin" (ngModelChange)="buyerForm.gstin = $event.toUpperCase()" placeholder="Leave empty for a personal guest" /></label>
+              <label>Legal name <input name="bName" maxlength="100" [(ngModel)]="buyerForm.legalName" /></label>
+              <label>Address <input name="bAddr" maxlength="200" [(ngModel)]="buyerForm.address" /></label>
+              <label>City <input name="bLoc" maxlength="50" [(ngModel)]="buyerForm.location" /></label>
+              <label>PIN code <input name="bPin" maxlength="6" [(ngModel)]="buyerForm.pincode" /></label>
+              <label>Place of supply
+                <select name="bPos" [(ngModel)]="buyerForm.placeOfSupply">
+                  @for (st of states; track st[0]) { <option [value]="st[0]">{{ st[0] }} {{ st[1] }}</option> }
+                </select>
+              </label>
+            </div>
+            <p class="muted small">A banquet is supplied where the venue is, so keep the venue's state unless your tax adviser says otherwise.</p>
+            <div class="actions">
+              <button type="button" (click)="editingBuyer = false">Close</button>
+              <button class="primary" type="submit" [disabled]="busy()">Save guest GST details</button>
+            </div>
+          </form>
+        } @else {
+          <dl class="buyer-view">
+            <dt>Guest</dt>
+            <dd>
+              @if (buyer.gstin) { <span class="mono">{{ buyer.gstin }}</span> · {{ buyer.legalName }} } @else { <span class="muted">No GSTIN: a personal (B2C) invoice</span> }
+            </dd>
+            <dt>Place of supply</dt><dd>{{ stateName(buyer.placeOfSupply) }}</dd>
+          </dl>
+          @if (b.gst?.eInvoice?.status !== 'generated') {
+            <p><button class="link" (click)="startBuyer(buyer)">Edit guest GST details</button></p>
+          }
+        }
+
+        @if (b.gst; as g) {
+          @if (g.eInvoiceOn) {
+            <h3>E-invoice</h3>
+            @if (g.eInvoice; as e) {
+              @if (e.sandbox) { <p class="alert warn small">Test portal: this IRN is not registered with GST and is not valid on a real invoice.</p> }
+              <div class="einv">
+                @if (e.qr) { <img [src]="e.qr" alt="E-invoice QR code" class="qr" /> }
+                <dl>
+                  <dt>Status</dt><dd>{{ e.status === 'generated' ? 'Registered' : 'Cancelled ' + (e.cancelDate ?? '') }}</dd>
+                  <dt>IRN</dt><dd class="mono irn">{{ e.irn }}</dd>
+                  <dt>Ack no.</dt><dd class="mono">{{ e.ackNo }}</dd>
+                  <dt>Ack date</dt><dd>{{ e.ackDate }}</dd>
+                  @if (e.cancelReason) { <dt>Cancelled because</dt><dd>{{ e.cancelReason }}</dd> }
+                </dl>
+              </div>
+              @if (e.status === 'generated') {
+                @if (cancellingEInvoice) {
+                  <form class="inline-form" (ngSubmit)="cancelEInvoice()">
+                    <select name="eReason" [(ngModel)]="eCancel.reasonCode" aria-label="Reason">
+                      @for (r of cancelReasons; track r[0]) { <option [value]="r[0]">{{ r[1] }}</option> }
+                    </select>
+                    <input name="eRemark" [(ngModel)]="eCancel.remark" maxlength="100" placeholder="Remark" aria-label="Remark" />
+                    <button type="button" (click)="cancellingEInvoice = false">Keep</button>
+                    <button class="primary danger-btn" type="submit" [disabled]="busy() || !eCancel.remark.trim()">Cancel e-invoice</button>
+                  </form>
+                  <p class="muted small">Allowed within 24 hours of registering. After that, issue a credit note.</p>
+                } @else {
+                  <p class="right"><button class="link danger" (click)="cancellingEInvoice = true">Cancel the e-invoice</button></p>
+                }
+              }
+            }
+            @if (g.eInvoice?.status !== 'generated') {
+              @if (buyer.gstin) {
+                <p><button class="primary" (click)="generateEInvoice()" [disabled]="busy() || editingBuyer">Register e-invoice</button>
+                  <span class="muted small"> Gets the IRN and QR code to print on the bill.</span></p>
+              } @else {
+                <p class="muted small">E-invoices are for business guests. Add the guest's GSTIN to register one.</p>
+              }
+            }
+          }
+        } @else {
+          <p class="muted small">The bill prints in the GST format once finalised.</p>
         }
       </section>
     }

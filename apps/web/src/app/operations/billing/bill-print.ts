@@ -7,6 +7,7 @@ import { TenantService } from '../../core/tenant.service';
 import { MasterRecord, MastersStore } from '../../master/masters-store';
 import { BillingApi, BillingView, PAYMENT_MODES, money } from './billing-api';
 import { DocLetterhead, DocNotes, DocPageSize } from './doc-parts';
+import { DocEInvoice, DocGstLines, DocGstParties } from './gst-parts';
 
 interface PrintLine {
   label: string;
@@ -26,7 +27,7 @@ interface PrintLine {
  */
 @Component({
   selector: 'app-bill-print',
-  imports: [RouterLink, DatePipe, DocLetterhead, DocNotes, DocPageSize],
+  imports: [RouterLink, DatePipe, DocLetterhead, DocNotes, DocPageSize, DocEInvoice, DocGstLines, DocGstParties],
   template: `
     @if (view(); as v) {
       <div class="toolbar no-print">
@@ -40,9 +41,10 @@ interface PrintLine {
           <div class="title">
             <h1>{{ title() }}</h1>
             @if (v.bill?.number && doc() === 'bill') { <p><strong>{{ v.bill!.number }}</strong></p> }
-            <p class="muted">{{ (v.bill?.finalisedAt && doc() === 'bill' ? v.bill!.finalisedAt : printedAt) | date: 'mediumDate' }}</p>
+            <p class="muted">{{ (v.bill?.date && doc() === 'bill' ? v.bill!.date : v.bill?.finalisedAt && doc() === 'bill' ? v.bill!.finalisedAt : printedAt) | date: 'mediumDate' }}</p>
           </div>
         </header>
+        <app-doc-einvoice [gst]="gst()" />
 
         <table class="facts">
           <tbody>
@@ -54,41 +56,55 @@ interface PrintLine {
           </tbody>
         </table>
 
-        <table class="list">
-          <thead>
-            <tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th>
-              @if (showDiscount()) { <th class="num">Discount</th> }
-              @if (showTax()) { <th class="num">Taxable</th><th class="num">Tax</th> }
-              <th class="num">Total</th></tr>
-          </thead>
-          <tbody>
-            @for (l of lines(); track $index) {
-              <tr>
-                <td>{{ l.label }}@if (l.note) { <br /><span class="muted small">{{ l.note }}</span> }</td>
-                <td class="num">{{ l.qty }}</td><td class="num">{{ money(l.rate) }}</td><td class="num">{{ money(l.amount) }}</td>
-                @if (showDiscount()) { <td class="num">{{ l.discount ? money(l.discount) : '' }}</td> }
-                @if (showTax()) { <td class="num">{{ money(l.taxable) }}</td><td class="num">{{ money(l.tax) }}</td> }
-                <td class="num">{{ money(l.total) }}</td>
-              </tr>
-            }
-          </tbody>
-        </table>
-
-        <div class="sums">
-          <dl>
-            <dt>Taxable value</dt><dd>{{ money(totals().taxable) }}</dd>
-            @for (t of totals().taxes; track t.id) { <dt>{{ t.name }}</dt><dd>{{ money(t.amount) }}</dd> }
-            @if (totals().roundOff) { <dt>Round off</dt><dd>{{ money(totals().roundOff) }}</dd> }
-            <dt class="grand">Total {{ currency() }}</dt><dd class="grand">{{ money(totals().total) }}</dd>
-            @if (totals().advances) { <dt>Less advances</dt><dd>{{ money(totals().advances) }}</dd> }
-            @if (totals().paid) { <dt>Less paid</dt><dd>{{ money(totals().paid) }}</dd> }
-            @if (totals().credited) { <dt>Less credit notes</dt><dd>{{ money(totals().credited) }}</dd> }
-            @if (doc() !== 'proforma') {
+        @if (gst(); as g) {
+          <app-doc-gst-parties [gst]="g" [buyer]="v.bill!.buyer" />
+          <app-doc-gst-lines [gst]="g" [totalLabel]="'Total ' + currency()" />
+          <div class="sums">
+            <dl>
+              @if (totals().advances) { <dt>Less advances</dt><dd>{{ money(totals().advances) }}</dd> }
+              @if (totals().paid) { <dt>Less paid</dt><dd>{{ money(totals().paid) }}</dd> }
+              @if (totals().credited) { <dt>Less credit notes</dt><dd>{{ money(totals().credited) }}</dd> }
               <dt class="grand">{{ totals().balance < 0 ? 'Due to guest' : 'Balance due' }}</dt>
               <dd class="grand">{{ money(totals().balance < 0 ? -totals().balance : totals().balance) }}</dd>
-            }
-          </dl>
-        </div>
+            </dl>
+          </div>
+        } @else {
+          <table class="list">
+            <thead>
+              <tr><th>Description</th><th class="num">Qty</th><th class="num">Rate</th><th class="num">Amount</th>
+                @if (showDiscount()) { <th class="num">Discount</th> }
+                @if (showTax()) { <th class="num">Taxable</th><th class="num">Tax</th> }
+                <th class="num">Total</th></tr>
+            </thead>
+            <tbody>
+              @for (l of lines(); track $index) {
+                <tr>
+                  <td>{{ l.label }}@if (l.note) { <br /><span class="muted small">{{ l.note }}</span> }</td>
+                  <td class="num">{{ l.qty }}</td><td class="num">{{ money(l.rate) }}</td><td class="num">{{ money(l.amount) }}</td>
+                  @if (showDiscount()) { <td class="num">{{ l.discount ? money(l.discount) : '' }}</td> }
+                  @if (showTax()) { <td class="num">{{ money(l.taxable) }}</td><td class="num">{{ money(l.tax) }}</td> }
+                  <td class="num">{{ money(l.total) }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+
+          <div class="sums">
+            <dl>
+              <dt>Taxable value</dt><dd>{{ money(totals().taxable) }}</dd>
+              @for (t of totals().taxes; track t.id) { <dt>{{ t.name }}</dt><dd>{{ money(t.amount) }}</dd> }
+              @if (totals().roundOff) { <dt>Round off</dt><dd>{{ money(totals().roundOff) }}</dd> }
+              <dt class="grand">Total {{ currency() }}</dt><dd class="grand">{{ money(totals().total) }}</dd>
+              @if (totals().advances) { <dt>Less advances</dt><dd>{{ money(totals().advances) }}</dd> }
+              @if (totals().paid) { <dt>Less paid</dt><dd>{{ money(totals().paid) }}</dd> }
+              @if (totals().credited) { <dt>Less credit notes</dt><dd>{{ money(totals().credited) }}</dd> }
+              @if (doc() !== 'proforma') {
+                <dt class="grand">{{ totals().balance < 0 ? 'Due to guest' : 'Balance due' }}</dt>
+                <dd class="grand">{{ money(totals().balance < 0 ? -totals().balance : totals().balance) }}</dd>
+              }
+            </dl>
+          </div>
+        }
 
         @if (doc() === 'bill' && v.bill && (v.bill.advanceReceipts.length || v.bill.payments.length)) {
           <h2>Received</h2>
@@ -176,6 +192,8 @@ export class BillPrint implements OnInit {
     const p = this.property();
     return p ? `${p['name']} · ${p['city']}, ${p['state']}, ${p['country']}` : '';
   });
+  /** The GST invoice format, for a final bill finalised with it on. */
+  protected readonly gst = computed(() => (this.doc() === 'bill' && this.view()?.bill?.status !== 'draft' ? this.view()?.bill?.gst ?? null : null));
   protected readonly showDiscount = computed(() => this.view()?.print?.showDiscountColumn !== false && this.doc() === 'bill');
   protected readonly showTax = computed(() => this.view()?.print?.showTaxColumn !== false);
   protected readonly title = computed(() => {

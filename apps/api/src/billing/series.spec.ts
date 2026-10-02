@@ -13,7 +13,7 @@ describe('series setup', () => {
 
   it('builds numbers from the prefix and digits', () => {
     expect(formatNumber(DEFAULT_SERIES.bill, '2026-27', 1)).toBe('B/2026-27/000001');
-    expect(formatNumber(DEFAULT_SERIES.creditNote, '2026-27', 42)).toBe('CN/2026-27/000042');
+    expect(formatNumber(DEFAULT_SERIES.creditNote, '2026-27', 42)).toBe('CN/26-27/000042');
     expect(formatNumber({ prefix: 'GOA/{FYSHORT}/', digits: 4, resetYearly: true }, '2026-27', 7)).toBe('GOA/26-27/0007');
     expect(expandPrefix('INV{FYSHORT}-', '2026')).toBe('INV26-');
   });

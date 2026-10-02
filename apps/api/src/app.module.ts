@@ -11,6 +11,8 @@ import { BillingSetup, BillingSetupSchema } from './billing/billing-setup.schema
 import { BillingSetupService } from './billing/billing-setup.service.js';
 import { CreditNote, CreditNoteSchema } from './billing/credit-note.schema.js';
 import { CreditNotesService } from './billing/credit-notes.service.js';
+import { EINVOICE_PROVIDER, eInvoiceProviderClass } from './billing/einvoice.provider.js';
+import { GstService } from './billing/gst.service.js';
 import { BillingController } from './billing/billing.controller.js';
 import { BillingService } from './billing/billing.service.js';
 import { BOOKING_SOURCE, ReservationBookingSource } from './billing/booking-source.js';
@@ -82,7 +84,7 @@ import { UsersService } from './users/users.service.js';
   controllers: [HealthController, TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController,
     SupportConsoleController, SupportSessionController, SupportAccessController, SupportApprovalController, SupportStaffController, AdminController],
   providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, ReportCacheService, AuthGuard,
-    RateLimiter, { provide: ErrorReporter, useClass: LogErrorReporter }, { provide: APP_FILTER, useClass: ReportingExceptionFilter }, BillingService, BillingSetupService, CreditNotesService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard, AdminConsoleGuard, AdminService, { provide: DnsLookup, useClass: NodeDnsLookup }],
+    RateLimiter, { provide: ErrorReporter, useClass: LogErrorReporter }, { provide: APP_FILTER, useClass: ReportingExceptionFilter }, BillingService, BillingSetupService, CreditNotesService, GstService, { provide: EINVOICE_PROVIDER, useClass: eInvoiceProviderClass() }, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard, AdminConsoleGuard, AdminService, { provide: DnsLookup, useClass: NodeDnsLookup }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
