@@ -91,7 +91,7 @@ resource "aws_cloudfront_distribution" "web" {
   is_ipv6_enabled     = true
   http_version        = "http2and3"
   comment             = "Banquet.ai ${var.env}"
-  aliases             = [var.domain, "*.${var.domain}"]
+  aliases             = local.has_domain ? [var.domain, "*.${var.domain}"] : []
   default_root_object = "index.html"
   price_class         = "PriceClass_200"
   web_acl_id          = aws_wafv2_web_acl.edge.arn
@@ -108,7 +108,7 @@ resource "aws_cloudfront_distribution" "web" {
     custom_origin_config {
       http_port              = 80
       https_port             = 443
-      origin_protocol_policy = "https-only"
+      origin_protocol_policy = local.has_domain ? "https-only" : "http-only"
       origin_ssl_protocols   = ["TLSv1.2"]
       origin_read_timeout    = 60
     }
@@ -147,10 +147,12 @@ resource "aws_cloudfront_distribution" "web" {
     geo_restriction { restriction_type = "none" }
   }
 
+  # Until there is a domain, the *.cloudfront.net address with AWS's own certificate.
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate_validation.edge.certificate_arn
-    ssl_support_method       = "sni-only"
-    minimum_protocol_version = "TLSv1.2_2021"
+    cloudfront_default_certificate = !local.has_domain
+    acm_certificate_arn            = local.has_domain ? aws_acm_certificate_validation.edge[0].certificate_arn : null
+    ssl_support_method             = local.has_domain ? "sni-only" : null
+    minimum_protocol_version       = local.has_domain ? "TLSv1.2_2021" : "TLSv1"
   }
 }
 

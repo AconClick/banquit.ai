@@ -43,7 +43,7 @@ export class UsersController {
 
   @Post()
   async create(@CurrentTenant() tenant: TenantDocument, @Body() body: CreateUserDto) {
-    return publicUser(await this.users.create(tenant._id, body, 'standard', this.tenants.loginHost(tenant)));
+    return publicUser(await this.users.create(tenant._id, body, 'standard', this.tenants.loginUrl(tenant)));
   }
 
   @Patch(':id')

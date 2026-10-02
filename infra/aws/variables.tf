@@ -11,9 +11,15 @@ variable "region" {
 }
 
 variable "domain" {
-  description = "Root domain. Tenants get <subdomain>.<domain>; the common login is app.<domain>."
+  description = "Root domain. Tenants get <subdomain>.<domain>; the common login is app.<domain>. Empty: no domain yet, everyone uses the CloudFront address and types their Domain at login."
   type        = string
-  default     = "banquet.ai"
+  default     = ""
+}
+
+variable "mail_from" {
+  description = "Sender address when there is no domain yet (SES emails it a verification link). Ignored once domain is set: mail then comes from no-reply@<domain>."
+  type        = string
+  default     = ""
 }
 
 variable "create_hosted_zone" {

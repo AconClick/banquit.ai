@@ -229,7 +229,7 @@ export class AdminService {
     await this.changeStatus(t, ['suspended'], 'active', by, reason);
     await this.notifier.send({
       channel: 'email', to: t.contactEmail, subject: 'Your Banquet.ai account is active again',
-      body: `The Banquet.ai account for ${t.name} is active again. Log in at https://${this.tenantsService.loginHost(t)}.`,
+      body: `The Banquet.ai account for ${t.name} is active again. Log in at ${this.tenantsService.loginUrl(t)}.`,
     });
     return this.tenantDetail(subdomain);
   }

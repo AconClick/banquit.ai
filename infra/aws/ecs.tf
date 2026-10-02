@@ -78,7 +78,7 @@ resource "aws_iam_role_policy" "task" {
         Effect    = "Allow"
         Action    = ["ses:SendEmail", "ses:SendRawEmail"]
         Resource  = "*"
-        Condition = { StringEquals = { "ses:FromAddress" = "no-reply@${var.domain}" } }
+        Condition = { StringEquals = { "ses:FromAddress" = local.mail_from } }
       },
       {
         # SMS straight to a phone number has no resource ARN to narrow this to.
@@ -111,12 +111,13 @@ resource "aws_ecs_task_definition" "api" {
     portMappings           = [{ containerPort = 3000, protocol = "tcp" }]
     environment = [
       { name = "NODE_ENV", value = "production" },
-      { name = "BASE_DOMAIN", value = var.domain },
+      # With a domain each client has its own sub-domain; without one they share the CloudFront address.
+      { name = local.has_domain ? "BASE_DOMAIN" : "SINGLE_HOST", value = local.has_domain ? var.domain : aws_cloudfront_distribution.web.domain_name },
       { name = "NOTIFY_PROVIDER", value = "aws" },
       { name = "AWS_REGION", value = var.region },
-      { name = "MAIL_FROM", value = "no-reply@${var.domain}" },
+      { name = "MAIL_FROM", value = local.mail_from },
       { name = "TRUST_PROXY", value = "2" },
-      { name = "ALLOW_TENANT_HEADER", value = "false" },
+      { name = "ALLOW_TENANT_HEADER", value = local.has_domain ? "false" : "true" },
     ]
     secrets = [
       { name = "MONGO_URL", valueFrom = aws_secretsmanager_secret.mongo_url.arn },
@@ -174,7 +175,7 @@ resource "aws_ecs_service" "api" {
   lifecycle {
     ignore_changes = [task_definition, desired_count]
   }
-  depends_on = [aws_lb_listener.https]
+  depends_on = [aws_lb_listener_rule.from_cloudfront]
 }
 
 resource "aws_appautoscaling_target" "api" {

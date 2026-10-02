@@ -1,5 +1,10 @@
 # Copy to terraform.tfvars and fill in.
 alert_email = "ops@example.com"
-# domain             = "banquet.ai"
-# region             = "ap-south-1"
+
+# No domain yet: leave domain empty and set an address SES can send from (it emails a verification link).
+mail_from = "you@example.com"
+
+# Once a domain is bought (and its name servers point at Route 53), set it and apply again:
+# domain             = "banquetai.in"
 # create_hosted_zone = true
+# region             = "ap-south-1"

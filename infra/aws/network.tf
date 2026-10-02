@@ -83,7 +83,7 @@ data "aws_ec2_managed_prefix_list" "cloudfront" {
 
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb"
-  description = "HTTPS from CloudFront only"
+  description = "From CloudFront only"
   vpc_id      = aws_vpc.main.id
 }
 
@@ -91,8 +91,8 @@ resource "aws_vpc_security_group_ingress_rule" "alb_https" {
   security_group_id = aws_security_group.alb.id
   prefix_list_id    = data.aws_ec2_managed_prefix_list.cloudfront.id
   ip_protocol       = "tcp"
-  from_port         = 443
-  to_port           = 443
+  from_port         = local.origin_port
+  to_port           = local.origin_port
 }
 
 resource "aws_vpc_security_group_egress_rule" "alb_to_api" {
