@@ -352,7 +352,12 @@ export interface BillLike {
   };
   advances: { amount: number }[];
   payments: { kind: 'payment' | 'refund'; amount: number }[];
+  /** Credit notes against the bill; cancelled ones no longer lower its balance. */
+  credits?: { total: number; status: string }[];
 }
+
+/** What credit notes still in force have taken off a bill. */
+export const creditedOf = (b: Pick<BillLike, 'credits'>) => (b.credits ?? []).reduce((s, c) => s + (c.status === 'issued' ? c.total : 0), 0);
 
 /** Bills that count as revenue: final, whether or not they are paid. Drafts and void bills do not. */
 export const REVENUE_BILL_STATUSES = ['finalised', 'partiallySettled', 'settled'] as const;
@@ -373,10 +378,11 @@ export function revenue(bills: BillLike[], currencies: Map<string, string>, from
   const collectedOf = (b: BillLike) =>
     b.advances.reduce((s, a) => s + a.amount, 0) + b.payments.reduce((s, p) => s + (p.kind === 'refund' ? -p.amount : p.amount), 0);
 
-  const empty = () => ({ bills: 0, amount: 0, discount: 0, taxable: 0, taxTotal: 0, roundOff: 0, total: 0, collected: 0, balance: 0 });
+  const empty = () => ({ bills: 0, amount: 0, discount: 0, taxable: 0, taxTotal: 0, roundOff: 0, total: 0, collected: 0, credited: 0, balance: 0 });
   type Sum = ReturnType<typeof empty>;
   const add = (s: Sum, b: BillLike) => {
     const collected = collectedOf(b);
+    const credited = creditedOf(b);
     s.bills += 1;
     s.amount += b.totals.amount;
     s.discount += b.totals.discount;
@@ -385,7 +391,8 @@ export function revenue(bills: BillLike[], currencies: Map<string, string>, from
     s.roundOff += b.totals.roundOff;
     s.total += b.totals.total;
     s.collected += collected;
-    s.balance += b.totals.total - collected;
+    s.credited += credited;
+    s.balance += b.totals.total - collected - credited;
   };
   const rounded = (s: Sum) => Object.fromEntries(Object.entries(s).map(([k, v]) => [k, k === 'bills' ? v : money(v)])) as Sum;
 
@@ -433,12 +440,142 @@ export function revenue(bills: BillLike[], currencies: Map<string, string>, from
     bills: counted
       .map((b) => {
         const collected = money(collectedOf(b));
+        const credited = money(creditedOf(b));
         return {
           id: b.id, number: b.number, propertyId: b.propertyId, currency: currencies.get(b.propertyId) ?? '', reservationId: b.reservationId,
           reservationNumber: b.reservationNumber, hostName: b.hostName, functionDate: b.functionDate, status: b.status,
-          total: b.totals.total, collected, balance: money(b.totals.total - collected),
+          total: b.totals.total, collected, credited, balance: money(b.totals.total - collected - credited),
         };
       })
       .sort((a, b) => a.functionDate.localeCompare(b.functionDate) || a.number.localeCompare(b.number)),
+  };
+}
+
+/* ---------- Credit notes, by their own date ---------- */
+
+export interface CreditNoteLike {
+  propertyId: string;
+  billId: string;
+  date: string;
+  status: string;
+  totals: {
+    taxable: number;
+    taxTotal: number;
+    total: number;
+    taxes: { id: string; name: string; amount: number }[];
+    lines: { billLineId: string; aType: string; taxable: number; taxes: { amount: number }[]; total: number }[];
+  };
+}
+
+type Split = { key: string; label: string; taxable: number; tax: number; total: number };
+type CreditRow = { notes: number; taxable: number; taxTotal: number; total: number };
+
+/** A revenue report (report-math `revenue` or report-summary `readRevenue`), before credit notes. */
+export interface RevenueReport<S> {
+  currency: string | null;
+  mixedCurrencies: boolean;
+  total: S | null;
+  byProperty: (S & { propertyId: string; currency: string })[];
+  byAType: Split[];
+  bySource: Split[];
+  taxes: { id: string; name: string; amount: number }[];
+}
+
+/**
+ * Takes the credit notes issued in the range (by the credit note's date, as they are reported for
+ * tax) off a revenue report: whatever the function date of the bill they credit, and only those
+ * still in force. Each figure gains what was credited and what is left (net). `sourceOf` gives the
+ * source of a bill line, keyed `billId|lineId`, since a credit note line only names its A-Type.
+ */
+export function withCreditNotes<S extends object>(
+  report: RevenueReport<S>,
+  notes: CreditNoteLike[],
+  sourceOf: Map<string, string>,
+  currencies: Map<string, string>,
+  propertyIds: string[],
+  from: string,
+  to: string,
+  empty: () => S,
+) {
+  const counted = notes.filter((n) => n.status === 'issued' && n.date >= from && n.date <= to);
+  const zero = (): CreditRow => ({ notes: 0, taxable: 0, taxTotal: 0, total: 0 });
+  const addNote = (r: CreditRow, n: CreditNoteLike) => {
+    r.notes += 1;
+    r.taxable += n.totals.taxable;
+    r.taxTotal += n.totals.taxTotal;
+    r.total += n.totals.total;
+  };
+  const byProperty = new Map<string, CreditRow>();
+  for (const n of counted) {
+    const row = byProperty.get(n.propertyId) ?? zero();
+    addNote(row, n);
+    byProperty.set(n.propertyId, row);
+  }
+
+  // Properties with only credit notes in the range are listed too, and count for the currency.
+  const order = new Map(propertyIds.map((id, i) => [id, i]));
+  const listed = new Map(report.byProperty.map((p) => [p.propertyId, p]));
+  const properties = [...new Set([...listed.keys(), ...byProperty.keys()])].sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9) || a.localeCompare(b));
+  const used = new Set(properties.map((p) => currencies.get(p) ?? ''));
+  const oneCurrency = used.size <= 1;
+
+  const credit = (r: CreditRow | undefined) => {
+    const c = r ?? zero();
+    return { notes: c.notes, taxable: money(c.taxable), taxTotal: money(c.taxTotal), total: money(c.total) };
+  };
+  const net = (s: { taxable: number; taxTotal: number; total: number }, c: CreditRow | undefined) => ({
+    taxable: money(s.taxable - (c?.taxable ?? 0)), taxTotal: money(s.taxTotal - (c?.taxTotal ?? 0)), total: money(s.total - (c?.total ?? 0)),
+  });
+
+  const credited = (rows: Split[], key: (l: CreditNoteLike['totals']['lines'][number], n: CreditNoteLike) => string, labels: Record<string, string>) => {
+    const out = new Map(rows.map((r) => [r.key, { ...r, creditedTaxable: 0, creditedTax: 0, credited: 0 }]));
+    for (const n of counted) {
+      for (const l of n.totals.lines) {
+        const k = key(l, n);
+        const row = out.get(k) ?? { key: k, label: labels[k] ?? k, taxable: 0, tax: 0, total: 0, creditedTaxable: 0, creditedTax: 0, credited: 0 };
+        row.creditedTaxable += l.taxable;
+        row.creditedTax += l.taxes.reduce((s, t) => s + t.amount, 0);
+        row.credited += l.total;
+        out.set(k, row);
+      }
+    }
+    return [...out.values()]
+      .map(({ creditedTaxable, creditedTax, ...r }) => ({
+        ...r, creditedTaxable: money(creditedTaxable), creditedTax: money(creditedTax), credited: money(r.credited),
+        netTaxable: money(r.taxable - creditedTaxable), netTax: money(r.tax - creditedTax), net: money(r.total - r.credited),
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  };
+  const taxes = new Map(report.taxes.map((t) => [t.id, { ...t, credited: 0 }]));
+  for (const n of counted) {
+    for (const t of n.totals.taxes) {
+      const row = taxes.get(t.id) ?? { id: t.id, name: t.name, amount: 0, credited: 0 };
+      row.credited += t.amount;
+      taxes.set(t.id, row);
+    }
+  }
+  const all = zero();
+  for (const r of byProperty.values()) {
+    all.notes += r.notes;
+    all.taxable += r.taxable;
+    all.taxTotal += r.taxTotal;
+    all.total += r.total;
+  }
+  const total = oneCurrency ? (report.total ?? empty()) as S & { taxable: number; taxTotal: number; total: number } : null;
+
+  return {
+    ...report,
+    currency: oneCurrency ? ([...used][0] ?? null) : null,
+    mixedCurrencies: !oneCurrency,
+    total: total && { ...total, creditNotes: credit(all), net: net(total, all) },
+    byProperty: properties.map((propertyId) => {
+      const s = (listed.get(propertyId) ?? { ...empty(), propertyId, currency: currencies.get(propertyId) ?? '' }) as S & { propertyId: string; currency: string; taxable: number; taxTotal: number; total: number };
+      return { ...s, creditNotes: credit(byProperty.get(propertyId)), net: net(s, byProperty.get(propertyId)) };
+    }),
+    byAType: oneCurrency ? credited(report.byAType, (l) => l.aType, A_TYPE_LABELS) : [],
+    bySource: oneCurrency ? credited(report.bySource, (l, n) => sourceOf.get(`${n.billId}|${l.billLineId}`) ?? 'other', { ...SOURCE_LABELS, other: 'Other' }) : [],
+    taxes: oneCurrency
+      ? [...taxes.values()].map((t) => ({ ...t, amount: money(t.amount), credited: money(t.credited), net: money(t.amount - t.credited) })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
+      : [],
   };
 }

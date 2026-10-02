@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Bill } from '../billing/bill.schema.js';
+import { CreditNote } from '../billing/credit-note.schema.js';
 import { MasterRecord } from '../masters/master-record.schema.js';
 import { addDays, isDate } from '../reservations/local-time.js';
 import { HallBlock, Reservation } from '../reservations/reservation.schema.js';
@@ -37,6 +38,7 @@ export class ReportsService {
     @InjectModel(HallBlock.name) private readonly blocks: Model<HallBlock>,
     @InjectModel(MasterRecord.name) private readonly masters: Model<MasterRecord>,
     @InjectModel(Bill.name) private readonly bills: Model<Bill>,
+    @InjectModel(CreditNote.name) private readonly creditNotes: Model<CreditNote>,
     private readonly cache: ReportCacheService,
   ) {}
 
@@ -78,7 +80,8 @@ export class ReportsService {
 
   /**
    * Revenue from final bills, by function date: totals from the monthly summaries, and the
-   * earliest bills of the range listed. Reads bills; never changes them.
+   * earliest bills of the range listed. Credit notes issued in the range, by their own date, are
+   * taken off (see report-math withCreditNotes). Reads bills and credit notes; never changes them.
    */
   async revenue(tenantId: Types.ObjectId, q: ReportQuery) {
     const scope = await this.scope(tenantId, q, MAX_REPORT_DAYS);
@@ -88,11 +91,21 @@ export class ReportsService {
       status: { $in: [...math.REVENUE_BILL_STATUSES] },
       functionDate: { $gte: scope.from, $lte: scope.to },
     };
-    const [months, edge] = await Promise.all([
+    const [months, edge, notes] = await Promise.all([
       this.cache.revenueDays(tenantId, scope.propertyIds, scope.from, scope.to),
       // The function date of the last bill listed, read from the index alone.
       this.bills.find(filter).sort({ functionDate: 1 }).skip(REVENUE_BILL_LIMIT - 1).limit(1).select({ _id: 0, functionDate: 1 }).lean(),
+      // Few against the bills, so read as they are rather than summarised.
+      this.creditNotes
+        .find({ tenantId, propertyId: { $in: scope.propertyIds }, date: { $gte: scope.from, $lte: scope.to }, status: 'issued' })
+        .select({ propertyId: 1, billId: 1, date: 1, status: 1, totals: 1 })
+        .lean(),
     ]);
+    const credited = await this.bills
+      .find({ tenantId, _id: { $in: [...new Set(notes.map((n) => n.billId))].filter((id) => Types.ObjectId.isValid(id)) } })
+      .select({ 'totals.lines.id': 1, 'totals.lines.source': 1 })
+      .lean();
+    const sourceOf = new Map(credited.flatMap((b) => (b.totals?.lines ?? []).map((l) => [`${String(b._id)}|${l.id}`, l.source] as [string, string])));
     const docs = await this.bills
       .find({ ...filter, functionDate: { $gte: scope.from, $lte: edge[0]?.functionDate ?? scope.to } })
       // The stored totals carry what the list needs; the editable lines and history are not read.
@@ -101,7 +114,11 @@ export class ReportsService {
     const bills = math.revenue(docs.filter((b) => b.totals).map(toBillLike), scope.currencies, scope.from, scope.to).bills.slice(0, REVENUE_BILL_LIMIT);
     return {
       ...this.header(scope),
-      ...summary.readRevenue(months, scope.currencies, scope.propertyIds, scope.from, scope.to),
+      ...math.withCreditNotes(
+        summary.readRevenue(months, scope.currencies, scope.propertyIds, scope.from, scope.to),
+        notes.map((n) => ({ propertyId: n.propertyId, billId: n.billId, date: n.date, status: n.status, totals: n.totals })),
+        sourceOf, scope.currencies, scope.propertyIds, scope.from, scope.to, summary.emptyRevenueSum,
+      ),
       bills,
       billLimit: REVENUE_BILL_LIMIT,
     };

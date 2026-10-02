@@ -141,6 +141,21 @@ describe('Reports and forecast', () => {
     ]));
     expect(res.bills[0]).toMatchObject({ reservationNumber: r.number, status: 'partiallySettled', total: 112000, balance: 32000 });
 
+    // A credit note on the DJ comes off revenue and off what is still to collect. It is dated
+    // the property's today, which can be tomorrow in UTC, so the range takes in tomorrow too.
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const lines = (await api.get(`billing/bills/${bill.id}/credit-notes`).expect(200)).body.lines as { lineId: string; total: number }[];
+    const dj = lines.find((l) => l.total === 7500)!;
+    const note = (await api.post(`billing/bills/${bill.id}/credit-notes`, { reason: 'DJ left early', lines: [{ lineId: dj.lineId, amount: 2000 }] }).expect(201)).body.creditNote;
+    const credited = (await api.get(`reports/revenue?${range(today, tomorrow)}`).expect(200)).body;
+    expect(credited.total).toMatchObject({ total: 112000, credited: 2000, balance: 30000, creditNotes: { notes: 1, taxable: 2000, total: 2000 }, net: { taxable: 110000, total: 110000 } });
+    expect(credited.byAType.find((x: { key: string }) => x.key === 'services')).toMatchObject({ total: 7500, credited: 2000, net: 5500 });
+    expect(credited.bills[0]).toMatchObject({ credited: 2000, balance: 30000 });
+    // Cancelled, it no longer counts.
+    await api.post(`billing/credit-notes/${note.id}/cancel`, { reason: 'Issued in error' }).expect(200);
+    const cancelled = (await api.get(`reports/revenue?${range(today, tomorrow)}`).expect(200)).body;
+    expect(cancelled.total).toMatchObject({ credited: 0, balance: 32000, creditNotes: { notes: 0, total: 0 }, net: { total: 112000 } });
+
     // Another tenant never sees these bills.
     const other = await setUp('revenuehotel');
     const theirs = await as(other.host, other.token).get(`reports/revenue?from=${today}&to=${today}`).expect(200);

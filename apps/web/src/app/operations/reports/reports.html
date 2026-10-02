@@ -211,38 +211,43 @@
 
   @case ('revenue') {
     @if (revenue(); as r) {
-      <p class="muted">Final bills for functions between these dates, paid or not. Draft and void bills are left out.</p>
+      <p class="muted">Final bills for functions between these dates, paid or not. Draft and void bills are left out. Credit notes issued between these dates are taken off, whichever bill they credit.</p>
       @if (r.total; as t) {
         <div class="tiles">
           <div class="tile"><span class="muted">Revenue before tax@if (r.currency) { ({{ r.currency }})}</span><strong>{{ money(t.taxable) }}</strong></div>
           <div class="tile"><span class="muted">Tax</span><strong>{{ money(t.taxTotal) }}</strong></div>
           <div class="tile"><span class="muted">Billed</span><strong>{{ money(t.total) }}</strong></div>
+          <div class="tile"><span class="muted">Credit notes ({{ t.creditNotes.notes }})</span><strong>{{ money(t.creditNotes.total) }}</strong></div>
+          <div class="tile"><span class="muted">Net of credit notes</span><strong>{{ money(t.net.total) }}</strong></div>
           <div class="tile"><span class="muted">Collected</span><strong>{{ money(t.collected) }}</strong></div>
           <div class="tile"><span class="muted">Still to collect</span><strong>{{ money(t.balance) }}</strong></div>
         </div>
+        @if (t.creditNotes.notes) {
+          <p class="muted">Net before tax {{ money(t.net.taxable) }}, net tax {{ money(t.net.taxTotal) }}. Still to collect is after the credit notes on these bills.</p>
+        }
         <div class="demand">
           <table class="report">
-            <thead><tr><th>By type (PAS)</th><th class="num">Before tax</th><th class="num">Tax</th><th class="num">Total</th></tr></thead>
+            <thead><tr><th>By type (PAS)</th><th class="num">Before tax</th><th class="num">Tax</th><th class="num">Total</th><th class="num">Credit notes</th><th class="num">Net</th></tr></thead>
             <tbody>
               @for (x of r.byAType; track x.key) {
-                <tr><td>{{ x.label }}</td><td class="num">{{ money(x.taxable) }}</td><td class="num">{{ money(x.tax) }}</td><td class="num">{{ money(x.total) }}</td></tr>
-              } @empty { <tr><td colspan="4" class="muted">No final bills in this range.</td></tr> }
+                <tr><td>{{ x.label }}</td><td class="num">{{ money(x.taxable) }}</td><td class="num">{{ money(x.tax) }}</td><td class="num">{{ money(x.total) }}</td><td class="num">{{ money(x.credited) }}</td><td class="num">{{ money(x.net) }}</td></tr>
+              } @empty { <tr><td colspan="6" class="muted">No final bills in this range.</td></tr> }
             </tbody>
           </table>
           <table class="report">
-            <thead><tr><th>By source</th><th class="num">Before tax</th><th class="num">Total</th></tr></thead>
+            <thead><tr><th>By source</th><th class="num">Before tax</th><th class="num">Total</th><th class="num">Credit notes</th><th class="num">Net</th></tr></thead>
             <tbody>
               @for (x of r.bySource; track x.key) {
-                <tr><td>{{ x.label }}</td><td class="num">{{ money(x.taxable) }}</td><td class="num">{{ money(x.total) }}</td></tr>
-              } @empty { <tr><td colspan="3" class="muted">No final bills in this range.</td></tr> }
+                <tr><td>{{ x.label }}</td><td class="num">{{ money(x.taxable) }}</td><td class="num">{{ money(x.total) }}</td><td class="num">{{ money(x.credited) }}</td><td class="num">{{ money(x.net) }}</td></tr>
+              } @empty { <tr><td colspan="5" class="muted">No final bills in this range.</td></tr> }
             </tbody>
           </table>
           <table class="report">
-            <thead><tr><th>Tax</th><th class="num">Amount</th></tr></thead>
+            <thead><tr><th>Tax</th><th class="num">Charged</th><th class="num">Credit notes</th><th class="num">Net</th></tr></thead>
             <tbody>
               @for (x of r.taxes; track x.id) {
-                <tr><td>{{ x.name }}</td><td class="num">{{ money(x.amount) }}</td></tr>
-              } @empty { <tr><td colspan="2" class="muted">No tax charged.</td></tr> }
+                <tr><td>{{ x.name }}</td><td class="num">{{ money(x.amount) }}</td><td class="num">{{ money(x.credited) }}</td><td class="num">{{ money(x.net) }}</td></tr>
+              } @empty { <tr><td colspan="4" class="muted">No tax charged.</td></tr> }
             </tbody>
           </table>
         </div>
@@ -251,12 +256,13 @@
       }
       @if (allProperties() || r.mixedCurrencies) {
         <table class="report">
-          <thead><tr><th>Property</th><th>Currency</th><th class="num">Bills</th><th class="num">Before tax</th><th class="num">Tax</th><th class="num">Billed</th><th class="num">Collected</th><th class="num">Still to collect</th></tr></thead>
+          <thead><tr><th>Property</th><th>Currency</th><th class="num">Bills</th><th class="num">Before tax</th><th class="num">Tax</th><th class="num">Billed</th><th class="num">Credit notes</th><th class="num">Net</th><th class="num">Collected</th><th class="num">Still to collect</th></tr></thead>
           <tbody>
             @for (p of r.byProperty; track p.propertyId) {
               <tr>
                 <td>{{ propertyNames().get(p.propertyId) }}</td><td>{{ p.currency }}</td><td class="num">{{ p.bills }}</td>
                 <td class="num">{{ money(p.taxable) }}</td><td class="num">{{ money(p.taxTotal) }}</td><td class="num">{{ money(p.total) }}</td>
+                <td class="num">{{ money(p.creditNotes.total) }}</td><td class="num">{{ money(p.net.total) }}</td>
                 <td class="num">{{ money(p.collected) }}</td><td class="num">{{ money(p.balance) }}</td>
               </tr>
             }
@@ -270,7 +276,7 @@
         <thead>
           <tr>
             <th>Function date</th><th>Bill</th><th>Booking</th><th>Host</th>@if (allProperties()) { <th>Property</th> }<th>Status</th>
-            <th class="num">Billed</th><th class="num">Collected</th><th class="num">Still to collect</th>
+            <th class="num">Billed</th><th class="num">Collected</th><th class="num">Credit notes</th><th class="num">Still to collect</th>
           </tr>
         </thead>
         <tbody>
@@ -281,10 +287,10 @@
               <td><a [routerLink]="['/operations/bookings', b.reservationId]">{{ b.reservationNumber }}</a></td>
               <td>{{ b.hostName }}</td>@if (allProperties()) { <td>{{ propertyNames().get(b.propertyId) }}</td> }
               <td>{{ billStatusLabels[b.status] ?? b.status }}</td>
-              <td class="num">{{ b.currency }} {{ money(b.total) }}</td><td class="num">{{ money(b.collected) }}</td><td class="num">{{ money(b.balance) }}</td>
+              <td class="num">{{ b.currency }} {{ money(b.total) }}</td><td class="num">{{ money(b.collected) }}</td><td class="num">{{ money(b.credited) }}</td><td class="num">{{ money(b.balance) }}</td>
             </tr>
           } @empty {
-            <tr><td colspan="9" class="muted">No final bills for functions in this range.</td></tr>
+            <tr><td colspan="10" class="muted">No final bills for functions in this range.</td></tr>
           }
         </tbody>
       </table>

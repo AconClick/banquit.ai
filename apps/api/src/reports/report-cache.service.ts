@@ -24,9 +24,15 @@ const CLOCK_SKEW_MS = 60_000;
 /** Past this many changes since the last check, rebuilding everything is cheaper than sorting out what changed. */
 const MAX_CHANGES = 5_000;
 
+/**
+ * Raised whenever what a summary holds changes; summaries of an older version are rebuilt when
+ * next read. 2: revenue counts credit notes against each bill.
+ */
+const SUMMARY_VERSION = 2;
+
 const FUNCTION_FIELDS = { updatedAt: 1, status: 1, propertyId: 1, guaranteedPax: 1, expectedMaxPax: 1, slots: 1 } as const;
 const CONVERSION_FIELDS = { updatedAt: 1, status: 1, propertyId: 1, functionTypeId: 1, history: 1, createdAt: 1 } as const;
-const BILL_FIELDS = { updatedAt: 1, propertyId: 1, status: 1, functionDate: 1, totals: 1, advances: 1, payments: 1 } as const;
+const BILL_FIELDS = { updatedAt: 1, propertyId: 1, status: 1, functionDate: 1, totals: 1, advances: 1, payments: 1, credits: 1 } as const;
 
 interface Built<T> {
   propertyId: string;
@@ -74,7 +80,7 @@ export class ReportCacheService {
     const part = months.filter((m) => !whole.includes(m));
     const read = (list: string[], field: 'total' | 'days') =>
       list.length
-        ? this.summaries.find({ tenantId, kind, propertyId: { $in: propertyIds }, month: { $in: list } }).select({ propertyId: 1, month: 1, [field]: 1 }).lean()
+        ? this.summaries.find({ tenantId, kind, propertyId: { $in: propertyIds }, month: { $in: list }, v: SUMMARY_VERSION }).select({ propertyId: 1, month: 1, [field]: 1 }).lean()
         : Promise.resolve([]);
     const found = (await Promise.all([read(whole, 'total'), read(part, 'days')])).flat();
     const have = new Set(found.map((s) => `${s.propertyId}|${s.month}`));
@@ -204,7 +210,7 @@ export class ReportCacheService {
         built.map((b) => ({
           replaceOne: {
             filter: { tenantId, kind, propertyId: b.propertyId, month: b.month },
-            replacement: { tenantId, kind, propertyId: b.propertyId, month: b.month, builtAt, sources: b.sources, days: b.days, total: b.total },
+            replacement: { tenantId, kind, propertyId: b.propertyId, month: b.month, v: SUMMARY_VERSION, builtAt, sources: b.sources, days: b.days, total: b.total },
             upsert: true,
           },
         })),
