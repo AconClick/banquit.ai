@@ -14,6 +14,9 @@ import {
   BillingView,
   CreditableLine,
   Discount,
+  EINVOICE_CANCEL_REASONS,
+  GST_STATES,
+  GstBuyer,
   LineInput,
   LineSource,
   PAYMENT_MODES,
@@ -90,6 +93,12 @@ export class BillPage implements OnInit {
   protected credit = { reason: '', full: false, amounts: {} as Record<string, number | null> };
   protected cancellingCredit: string | null = null;
   protected cancelCreditReason = '';
+  protected readonly states = Object.entries(GST_STATES).sort((a, b) => a[1].localeCompare(b[1]));
+  protected readonly cancelReasons = Object.entries(EINVOICE_CANCEL_REASONS);
+  protected editingBuyer = false;
+  protected buyerForm: GstBuyer = { gstin: '', legalName: '', address: '', location: '', pincode: '', placeOfSupply: '' };
+  protected cancellingEInvoice = false;
+  protected eCancel = { reasonCode: '2', remark: '' };
 
   protected readonly bill = computed(() => this.view()?.bill ?? null);
   protected readonly isDraft = computed(() => this.bill()?.status === 'draft');
@@ -327,6 +336,42 @@ export class BillPage implements OnInit {
       this.cancellingCredit = null;
       return res.bill;
     }, 'Credit note cancelled.');
+  }
+
+  protected stateName(code: string) {
+    return GST_STATES[code] ? `${GST_STATES[code]} (${code})` : code;
+  }
+
+  protected startBuyer(buyer: GstBuyer) {
+    this.buyerForm = { ...buyer };
+    this.editingBuyer = true;
+  }
+
+  protected saveBuyer() {
+    const bill = this.bill();
+    if (!bill) return;
+    return this.run(async () => {
+      const after = await this.api.setBuyer(bill.id, this.buyerForm);
+      this.editingBuyer = false;
+      return after;
+    }, 'Guest GST details saved.');
+  }
+
+  protected generateEInvoice() {
+    const bill = this.bill();
+    if (bill) return this.run(() => this.api.eInvoice(bill.id), 'E-invoice registered. The IRN and QR code now print on the bill.');
+    return undefined;
+  }
+
+  protected cancelEInvoice() {
+    const bill = this.bill();
+    if (!bill) return;
+    return this.run(async () => {
+      const after = await this.api.cancelEInvoice(bill.id, this.eCancel.reasonCode, this.eCancel.remark);
+      this.cancellingEInvoice = false;
+      this.eCancel = { reasonCode: '2', remark: '' };
+      return after;
+    }, 'E-invoice cancelled.');
   }
 
   protected bookingStatus(s: string) {

@@ -7,8 +7,14 @@ export const config = {
   mongoUrl: process.env.MONGO_URL ?? 'mongodb://127.0.0.1:27017/banquetai',
   /** Root domain that tenant sub-domains hang off, e.g. prime.banquet.ai. */
   baseDomain: (process.env.BASE_DOMAIN ?? 'banquet.ai').toLowerCase(),
-  /** Allows the X-Tenant header to pick the tenant (local development and the common app.banquet.ai URL). */
-  allowTenantHeader: (process.env.ALLOW_TENANT_HEADER ?? String(!production)) === 'true',
+  /**
+   * Run every tenant on one address (e.g. the CloudFront default d123.cloudfront.net) until a domain
+   * is bought: users type their Domain on the login page and it travels in the X-Tenant header.
+   * Leave empty to give each tenant its own sub-domain of BASE_DOMAIN.
+   */
+  singleHost: (process.env.SINGLE_HOST ?? '').trim().toLowerCase(),
+  /** Allows the X-Tenant header to pick the tenant (local development, and the single-address mode above). */
+  allowTenantHeader: (process.env.ALLOW_TENANT_HEADER ?? String(!production || !!process.env.SINGLE_HOST)) === 'true',
   jwtSecret: process.env.JWT_SECRET ?? 'dev-only-secret-change-me',
   /** Shared secret for the Banquet.ai platform admin endpoints until the admin console has its own login. */
   platformAdminToken: process.env.PLATFORM_ADMIN_TOKEN ?? 'dev-platform-token',

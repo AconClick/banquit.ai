@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { AuthGuard, RequirePermission } from '../auth/auth.guard.js';
 import { CurrentAuth, CurrentTenant, type AuthContext } from '../common/request-context.js';
 import type { TenantDocument } from '../tenants/tenant.schema.js';
@@ -9,6 +9,7 @@ import { BILL_STATUSES, PAYMENT_MODES, type PaymentMode } from './bill.schema.js
 import { BillingSetupService } from './billing-setup.service.js';
 import { CreditNotesService } from './credit-notes.service.js';
 import { BillingService } from './billing.service.js';
+import { GstService } from './gst.service.js';
 
 const SOURCES: LineSource[] = ['package', 'extra', 'running', 'hallHire', 'liquorLicence'];
 
@@ -79,7 +80,64 @@ class NextNumbersDto {
   @IsOptional() @IsInt() creditNote?: number;
 }
 
+class PrintDto {
+  @IsOptional() @IsString() @MaxLength(100_000) logo?: string;
+  @IsOptional() @IsString() legalName?: string;
+  @IsOptional() @IsString() headerLines?: string;
+  @IsOptional() @IsString() registration?: string;
+  @IsOptional() @IsString() billTitle?: string;
+  @IsOptional() @IsString() proformaTitle?: string;
+  @IsOptional() @IsString() creditNoteTitle?: string;
+  @IsOptional() @IsString() proformaNote?: string;
+  @IsOptional() @IsString() bankDetails?: string;
+  @IsOptional() @IsString() terms?: string;
+  @IsOptional() @IsString() footer?: string;
+  @IsOptional() @IsString() signatureLabel?: string;
+  @IsOptional() @IsBoolean() showDiscountColumn?: boolean;
+  @IsOptional() @IsBoolean() showTaxColumn?: boolean;
+  @IsOptional() @IsIn(['A4', 'Letter']) paperSize?: 'A4' | 'Letter';
+}
+
+class SacDto {
+  @IsOptional() @IsString() package?: string;
+  @IsOptional() @IsString() alacarte?: string;
+  @IsOptional() @IsString() services?: string;
+  @IsOptional() @IsString() hallHire?: string;
+  @IsOptional() @IsString() liquorLicence?: string;
+}
+
+class GstDto {
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  @IsOptional() @IsBoolean() eInvoice?: boolean;
+  @IsOptional() @IsString() gstin?: string;
+  @IsOptional() @IsString() legalName?: string;
+  @IsOptional() @IsString() tradeName?: string;
+  @IsOptional() @IsString() address1?: string;
+  @IsOptional() @IsString() address2?: string;
+  @IsOptional() @IsString() location?: string;
+  @IsOptional() @IsString() pincode?: string;
+  @IsOptional() @ValidateNested() @Type(() => SacDto) sac?: SacDto;
+  /** Tax master id → gst, cgst, sgst, igst, cess, or '' to clear; checked in the service. */
+  @IsOptional() @IsObject() taxRoles?: Record<string, 'gst' | 'cgst' | 'sgst' | 'igst' | 'cess' | ''>;
+}
+
+class BuyerDto {
+  @IsOptional() @IsString() gstin?: string;
+  @IsOptional() @IsString() legalName?: string;
+  @IsOptional() @IsString() address?: string;
+  @IsOptional() @IsString() location?: string;
+  @IsOptional() @IsString() pincode?: string;
+  @IsOptional() @IsString() placeOfSupply?: string;
+}
+
+class EInvoiceCancelDto {
+  @IsIn(['1', '2', '3', '4']) reasonCode: '1' | '2' | '3' | '4';
+  @IsString() @MaxLength(100) remark: string;
+}
+
 class SetupDto {
+  @IsOptional() @ValidateNested() @Type(() => GstDto) gst?: GstDto;
+  @IsOptional() @ValidateNested() @Type(() => PrintDto) print?: PrintDto;
   @IsOptional() @IsInt() fyStartMonth?: number;
   @IsOptional() @ValidateNested() @Type(() => SeriesSetDto) series?: SeriesSetDto;
   @IsOptional() @ValidateNested() @Type(() => NextNumbersDto) nextNumbers?: NextNumbersDto;
@@ -92,7 +150,41 @@ export class BillingController {
     private readonly billing: BillingService,
     private readonly setup: BillingSetupService,
     private readonly credits: CreditNotesService,
+    private readonly gst: GstService,
   ) {}
+
+  @Put('bills/:id/gst-buyer')
+  @RequirePermission('billing.manage')
+  setBuyer(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() body: BuyerDto) {
+    return this.gst.setBuyer(tenant._id, auth.user.id as string, id, body);
+  }
+
+  @Post('bills/:id/einvoice')
+  @HttpCode(200)
+  @RequirePermission('billing.approve')
+  eInvoice(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.gst.generateForBill(tenant._id, auth.user.id as string, id);
+  }
+
+  @Post('bills/:id/einvoice/cancel')
+  @HttpCode(200)
+  @RequirePermission('billing.approve')
+  cancelEInvoice(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string, @Body() body: EInvoiceCancelDto) {
+    return this.gst.cancelForBill(tenant._id, auth.user.id as string, id, body.reasonCode, body.remark);
+  }
+
+  @Get('credit-notes/:id/gst')
+  @RequirePermission('billing.manage')
+  creditGst(@CurrentTenant() tenant: TenantDocument, @Param('id') id: string) {
+    return this.gst.creditNoteGst(tenant._id, id);
+  }
+
+  @Post('credit-notes/:id/einvoice')
+  @HttpCode(200)
+  @RequirePermission('billing.approve')
+  creditEInvoice(@CurrentTenant() tenant: TenantDocument, @CurrentAuth() auth: AuthContext, @Param('id') id: string) {
+    return this.gst.generateForCreditNote(tenant._id, auth.user.id as string, id);
+  }
 
   @Get('bills/:id/credit-notes')
   @RequirePermission('billing.manage')

@@ -87,7 +87,7 @@ resource "aws_cloudwatch_metric_alarm" "api" {
 
 # Outside-in check: is the site answering, through CloudFront, with a working database?
 resource "aws_route53_health_check" "site" {
-  fqdn              = "app.${var.domain}"
+  fqdn              = local.public_host
   type              = "HTTPS"
   port              = 443
   resource_path     = "/api/health/ready"
@@ -99,7 +99,7 @@ resource "aws_route53_health_check" "site" {
 resource "aws_cloudwatch_metric_alarm" "site_down" {
   provider            = aws.us_east_1
   alarm_name          = "${local.name}-site-down"
-  alarm_description   = "app.${var.domain}/api/health/ready is failing from outside AWS."
+  alarm_description   = "${local.public_host}/api/health/ready is failing from outside AWS."
   namespace           = "AWS/Route53"
   metric_name         = "HealthCheckStatus"
   dimensions          = { HealthCheckId = aws_route53_health_check.site.id }

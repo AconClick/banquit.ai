@@ -10,6 +10,7 @@ import { checkPassword, generateOtp, generatePassword, hashPassword, passwordPro
 import { Notifier } from '../notifications/notifier.js';
 import { ACTIVITIES, ALL_PERMISSIONS, type Activity } from '../roles/permissions.js';
 import { Tenant, TenantDocument } from '../tenants/tenant.schema.js';
+import { tenantUrl } from '../tenants/tenants.service.js';
 import { SUPPORT_ROLES, SupportSession, SupportSessionDocument, SupportUser, SupportUserDocument, type SupportRole } from './support.schema.js';
 
 /** Token for the Banquet.ai admin console (no tenant). */
@@ -441,7 +442,7 @@ export class SupportService {
     const who = `${s.supportName} from Banquet.ai support`;
     const why = `Reason: ${s.reason}${s.ticket ? ` (ticket ${s.ticket})` : ''}.`;
     const body = {
-      request: `${who} asks to enter your Banquet.ai account. ${why} To approve or decline, open https://${hostOf(tenant)}/support-approval?token=${link} (works once, for ${authRules.supportApprovalLinkHours} hours), or use Master › Support Access.`,
+      request: `${who} asks to enter your Banquet.ai account. ${why} To approve or decline, open ${tenantUrl(tenant, '/support-approval', { token: link ?? '' })} (works once, for ${authRules.supportApprovalLinkHours} hours), or use Master › Support Access.`,
       start: `${who} has entered your Banquet.ai account for up to ${authRules.supportSessionHours} hours. ${why} You can see what they do in Master › Support Access.`,
       emergency: `${who} entered your Banquet.ai account using the emergency override because approval could not be obtained. ${why} Every action is listed in Master › Support Access.`,
     }[kind];

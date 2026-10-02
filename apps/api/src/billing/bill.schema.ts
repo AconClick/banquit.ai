@@ -1,6 +1,7 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 import type { AType, BillTotals, LineSource, TaxRate } from './bill-engine.js';
+import type { GstBuyer, GstSetup } from './gst.js';
 
 /** docs/workflows/billing-stages.md, section 2. Proforma and Running are worked out, not stored. */
 export const BILL_STATUSES = ['draft', 'finalised', 'partiallySettled', 'settled', 'void'] as const;
@@ -150,6 +151,20 @@ export class BillCredit {
   status: 'issued' | 'cancelled';
 }
 
+/** The e-invoice registration of a bill or credit note (IRN from the IRP). */
+export interface EInvoiceRecord {
+  status: 'generated' | 'cancelled';
+  irn: string;
+  ackNo: string;
+  ackDate: string;
+  signedQr: string;
+  provider: string;
+  sandbox: boolean;
+  byUserId: string;
+  cancelDate?: string;
+  cancelReason?: string;
+}
+
 @Schema({ timestamps: true })
 export class Bill {
   @Prop({ type: Types.ObjectId, required: true })
@@ -213,6 +228,17 @@ export class Bill {
 
   @Prop({ type: [BillCredit], default: [] })
   credits: BillCredit[];
+
+  /** The guest's GST details (GSTIN for B2B, place of supply). */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null })
+  buyer: GstBuyer | null;
+
+  /** The property's GST setup when finalised, so later changes to it do not alter the invoice. */
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null })
+  gst: Omit<GstSetup, 'enabled'> | null;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null })
+  eInvoice: EInvoiceRecord | null;
 
   /** Totals as printed, stored when finalised. */
   @Prop({ type: MongooseSchema.Types.Mixed, default: null })

@@ -22,11 +22,20 @@ visitor ──> CloudFront + WAF ──┬── /*      ──> S3 (Angular app
 
 Rough monthly cost at launch: about US$150–220. That covers 2 small Fargate tasks, the NAT gateway, the load balancer, WAF, CloudFront and CloudWatch. MongoDB Atlas is billed separately, from about US$60 for M10.
 
+## Starting without a domain
+
+The setup works before a domain is bought. Leave `domain` empty in `terraform.tfvars` and set `mail_from` to an address you can open. Then:
+
+- The app answers on the CloudFront address (the `app_url` output, like `https://d1abc2xyz.cloudfront.net`). Every client shares it and types their **Domain** (their code, e.g. `prime`) on the login page. The API runs with `SINGLE_HOST` set to that address, and emailed links carry `?domain=<code>` so they open for the right client.
+- Mail comes from `mail_from` once SES verification is done (click the link AWS emails to it).
+- CloudFront talks to the load balancer over HTTP inside this mode, since there is no certificate for it. Visitors still use HTTPS.
+- Moving to a domain later: register it in Route 53, set `domain` (keep `create_hosted_zone = false` if Route 53 made the zone when you bought it), and run `terraform apply` again. Existing clients keep their code as their sub-domain (`prime.<domain>`); nothing in the database changes.
+
 ## 1. Accounts and domain (You)
 
 1. Create the AWS account. Turn on MFA for the root user, then create an admin IAM Identity Center user for daily work.
 2. Set a **billing alarm** (Billing > Budgets), for example at US$300 per month.
-3. Decide the domain. The code assumes `banquet.ai`; anything else is one variable.
+3. Decide the domain, or start without one (above).
 4. MongoDB Atlas: use **M10 or larger** for production. M0/M2/M5 have no continuous backup and no point-in-time restore. Pick the Mumbai (`ap-south-1`) region and turn on **Cloud Backup with Continuous Cloud Backup**. See [backup-and-restore.md](backup-and-restore.md).
 5. Create an Atlas database user for the app with `readWrite` on the `banquetai` database only. Use a long generated password.
 

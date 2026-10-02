@@ -1,6 +1,11 @@
 output "name_servers" {
   description = "Set these as the domain's name servers at the registrar."
-  value       = var.create_hosted_zone ? aws_route53_zone.main[0].name_servers : []
+  value       = local.has_domain && var.create_hosted_zone ? aws_route53_zone.main[0].name_servers : []
+}
+
+output "app_url" {
+  description = "Where the app answers. Without a domain, users type their Domain on this login page."
+  value       = "https://${local.public_host}"
 }
 
 output "atlas_allow_ip" {

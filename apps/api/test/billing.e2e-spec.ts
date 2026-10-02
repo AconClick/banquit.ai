@@ -231,7 +231,7 @@ describe('Banquet billing: draft, final bill and settlement', () => {
     const setup = (await m.get(`billing/setup/${ids.p1}`).expect(200)).body;
     expect(setup).toMatchObject({
       fyStartMonth: 4, financialYear: fy, currency: 'INR', decimals: 2,
-      series: { bill: { prefix: 'B/{FY}/', digits: 6, resetYearly: true }, creditNote: { prefix: 'CN/{FY}/', digits: 6, resetYearly: true } },
+      series: { bill: { prefix: 'B/{FY}/', digits: 6, resetYearly: true }, creditNote: { prefix: 'CN/{FYSHORT}/', digits: 6, resetYearly: true } },
       next: { bill: { seq: 4, number: `B/${fy}/000004` }, creditNote: { seq: 1 } },
     });
     // Operations users bill, but only the Master panel changes the series.
@@ -337,6 +337,7 @@ describe('Banquet billing: draft, final bill and settlement', () => {
 
   it('issues credit notes against a final bill, and refunds what they free up', async () => {
     const fy = financialYear(today());
+    const short = `${fy.slice(2, 4)}-${fy.slice(5)}`;
     const bill = (await ops.get(`billing/bills/${ids.bill1}`).expect(200)).body;
     const mocktail = bill.lines.find((l: { label: string }) => l.label === 'Mocktail');
     const open = (await ops.get(`billing/bills/${ids.bill1}/credit-notes`).expect(200)).body;
@@ -349,10 +350,10 @@ describe('Banquet billing: draft, final bill and settlement', () => {
       reason: '10 mocktails not served', lines: [{ lineId: mocktail.id, amount: 1180 }],
     }).expect(201)).body;
     expect(res.creditNote).toMatchObject({
-      number: `CN/${fy}/000001`, billNumber: bill.number, billDate: bill.date, status: 'issued', currency: 'INR',
+      number: `CN/${short}/000001`, billNumber: bill.number, billDate: bill.date, status: 'issued', currency: 'INR',
       taxable: 1000, taxes: [{ id: ids.gst18, amount: 180 }], total: 1180, roundOff: 0,
     });
-    expect(res.bill).toMatchObject({ status: 'partiallySettled', credited: 1180, balance: -1180, creditNotes: [{ number: `CN/${fy}/000001`, total: 1180 }] });
+    expect(res.bill).toMatchObject({ status: 'partiallySettled', credited: 1180, balance: -1180, creditNotes: [{ number: `CN/${short}/000001`, total: 1180 }] });
     const refund = (await ops.post(`billing/bills/${ids.bill1}/payments`, { kind: 'refund', amount: 1180, mode: 'upi' }).expect(200)).body;
     expect(refund).toMatchObject({ status: 'settled', balance: 0 });
     const after = (await ops.get(`billing/bills/${ids.bill1}/credit-notes`).expect(200)).body;
@@ -366,12 +367,12 @@ describe('Banquet billing: draft, final bill and settlement', () => {
 
     // A full credit note brings the whole bill to zero, round-off included; the guest is owed what was paid.
     const full = (await ops.post(`billing/bills/${ids.bill1}/credit-notes`, { reason: 'Function billed to the wrong guest', full: true }).expect(201)).body;
-    expect(full.creditNote).toMatchObject({ number: `CN/${fy}/000002`, total: 145628, roundOff: 0.5 });
+    expect(full.creditNote).toMatchObject({ number: `CN/${short}/000002`, total: 145628, roundOff: 0.5 });
     expect(full.bill).toMatchObject({ credited: 145628, balance: -(145628 - 1180) });
     await ops.post(`billing/bills/${ids.bill1}/credit-notes`, { reason: 'More', full: true }).expect(400)
       .then((r) => expect(r.body.message).toEqual(['Everything on this bill has been credited already.']));
     const list = (await ops.get(`billing/credit-notes?propertyId=${ids.p1}`).expect(200)).body;
-    expect(list.map((n: { number: string; status: string }) => [n.number, n.status])).toEqual([[`CN/${fy}/000002`, 'issued'], [`CN/${fy}/000001`, 'cancelled']]);
+    expect(list.map((n: { number: string; status: string }) => [n.number, n.status])).toEqual([[`CN/${short}/000002`, 'issued'], [`CN/${short}/000001`, 'cancelled']]);
     expect((await ops.get(`billing/credit-notes/${full.creditNote.id}`).expect(200)).body.lines).toHaveLength(5);
   });
 
@@ -384,6 +385,85 @@ describe('Banquet billing: draft, final bill and settlement', () => {
     await ops.post(`billing/bills/${draft.id}/credit-notes`, { reason: 'Discount agreed later', lines: [{ lineId: draft.lines[0].id, amount: 100 }] }).expect(201);
     const v = await ops.post(`billing/bills/${draft.id}/void`, { reason: 'Wrong' }).expect(400);
     expect(v.body.message).toMatch(/Credit notes have been issued/);
+  });
+
+  it('prints with the property’s Print Setup', async () => {
+    const before = (await m.get(`billing/setup/${ids.p1}`).expect(200)).body;
+    expect(before.print).toMatchObject({ logo: '', billTitle: 'Tax invoice', proformaTitle: 'Proforma invoice', showDiscountColumn: true, paperSize: 'A4' });
+    const svg = await m.put(`billing/setup/${ids.p1}`, { print: { logo: 'data:image/svg+xml;base64,PHN2Zz4=', paperSize: 'A3' } }).expect(400);
+    expect(svg.body.message).toEqual([expect.stringMatching(/paperSize must be one of the following values: A4, Letter/)]);
+    const bad = await m.put(`billing/setup/${ids.p1}`, { print: { logo: 'data:image/svg+xml;base64,PHN2Zz4=' } }).expect(400);
+    expect(bad.body.message).toEqual(['The logo must be a PNG, JPEG or WebP image.']);
+    const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const saved = (await m.put(`billing/setup/${ids.p1}`, {
+      print: { logo: png, legalName: 'Prime Hotels Pvt Ltd', headerLines: 'MG Road, Kochi 682016\n+91 484 400 0000', registration: 'GSTIN 32ABCDE1234F1Z5',
+        billTitle: '', footer: 'Thank you for celebrating with us.', showDiscountColumn: false },
+    }).expect(200)).body;
+    // An empty title falls back to the default; the series are untouched.
+    expect(saved.print).toMatchObject({ logo: png, billTitle: 'Tax invoice', showDiscountColumn: false, footer: 'Thank you for celebrating with us.' });
+    expect(saved.series.bill.prefix).toBe('KOC/{FYSHORT}/');
+    const view = (await ops.get(`billing/reservations/${ids.r1}`).expect(200)).body;
+    expect(view.print).toMatchObject({ legalName: 'Prime Hotels Pvt Ltd', registration: 'GSTIN 32ABCDE1234F1Z5' });
+  });
+
+  it('prints the GST invoice format and registers e-invoices with the sandbox IRP', async () => {
+    const off = await m.put(`billing/setup/${ids.p1}`, { gst: { enabled: true } }).expect(400);
+    expect(off.body.message.join(' ')).toMatch(/GSTIN.*legal name.*address.*PIN/);
+    const role = await m.put(`billing/setup/${ids.p1}`, { gst: { taxRoles: { [ids.hall]: 'gst' } } }).expect(400);
+    expect(role.body.message).toEqual(['GST: choose roles only for taxes set up for this property.']);
+    const seller = {
+      enabled: true, eInvoice: true, gstin: '32aabcp1234q1zg', legalName: 'Prime Hotels Pvt Ltd', address1: 'MG Road', location: 'Kochi', pincode: '682016',
+      taxRoles: { [ids.cgst]: 'cgst', [ids.sgst]: 'sgst', [ids.gst18]: 'gst' },
+    };
+    const long = await m.put(`billing/setup/${ids.p1}`, { gst: seller, series: { creditNote: { prefix: 'CREDIT/{FY}/', digits: 6, resetYearly: true } } }).expect(400);
+    expect(long.body.message).toEqual([expect.stringMatching(/^Credit notes: a GST invoice number is at most 16 characters/)]);
+    const setup = (await m.put(`billing/setup/${ids.p1}`, { gst: seller }).expect(200)).body;
+    expect(setup.gst).toMatchObject({ gstin: '32AABCP1234Q1ZG', stateCode: '32', sac: { package: '996334', hallHire: '997212' } });
+
+    const r6 = await confirmedBooking({ from: '02:00', to: '03:00', pax: 10, advance: 6000, extras: [{ kind: 'menuItem', itemId: ids.mocktail, qty: 10 }] });
+    await complete(r6, 10);
+    const draft = (await ops.post(`billing/reservations/${r6}/draft`, {}).expect(201)).body;
+    expect(draft).toMatchObject({ gstEnabled: true, gst: null, buyer: { gstin: '', placeOfSupply: '32' } });
+    const fin = (await ops.post(`billing/bills/${draft.id}/finalise`, {}).expect(200)).body;
+    // 10 × 950 inclusive of 5% (CGST + SGST), and 10 mocktails at 150 + 18% GST split in two within Kerala.
+    expect(fin.gst.invoice).toMatchObject({ intraState: true, placeOfSupply: '32', b2b: false, igst: 0, total: fin.total });
+    expect(fin.gst.invoice.byRate.map((r: { gstRate: number }) => r.gstRate)).toEqual([5, 18]);
+    const mock = fin.gst.invoice.lines.find((l: { label: string }) => l.label === 'Mocktail');
+    expect(mock).toMatchObject({ sac: '996334', taxable: 1500, gstRate: 18, cgst: 135, sgst: 135 });
+
+    const b2c = await ops.post(`billing/bills/${draft.id}/einvoice`, {}).expect(400);
+    expect(b2c.body.message.join(' ')).toMatch(/business guests/);
+    await ops.put(`billing/bills/${draft.id}/gst-buyer`, { gstin: '29AABCT1332L1ZB', legalName: 'Tech Corp' }).expect(400)
+      .then((r) => expect(r.body.message).toEqual(['The guest’s GSTIN is not valid. Check the 15 characters.']));
+    const b2b = (await ops.put(`billing/bills/${draft.id}/gst-buyer`, {
+      gstin: '29AABCT1332L1ZA', legalName: 'Tech Corp Ltd', address: '5 MG Road', location: 'Bengaluru', pincode: '560001',
+    }).expect(200)).body;
+    // A banquet is supplied where the venue is, so a Karnataka company still pays CGST + SGST in Kerala.
+    expect(b2b.gst.invoice).toMatchObject({ b2b: true, intraState: true, placeOfSupply: '32' });
+
+    const irn = (await ops.post(`billing/bills/${draft.id}/einvoice`, {}).expect(200)).body;
+    expect(irn.gst.eInvoice).toMatchObject({
+      status: 'generated', irn: expect.stringMatching(/^[0-9a-f]{64}$/), ackNo: expect.stringMatching(/^\d{15}$/), sandbox: true, provider: 'sandbox',
+      qr: expect.stringMatching(/^data:image\/png;base64,/),
+    });
+    await ops.post(`billing/bills/${draft.id}/einvoice`, {}).expect(400);
+    await ops.put(`billing/bills/${draft.id}/gst-buyer`, { gstin: '' }).expect(400);
+    await ops.post(`billing/bills/${draft.id}/void`, { reason: 'Wrong' }).expect(400)
+      .then((r) => expect(r.body.message).toMatch(/e-invoice/i));
+
+    // A credit note against an e-invoiced bill is registered too, quoting the bill.
+    const cn = (await ops.post(`billing/bills/${draft.id}/credit-notes`, { reason: '2 mocktails not served', lines: [{ lineId: mock.billLineId, amount: 354 }] }).expect(201)).body;
+    const cnGst = (await ops.get(`billing/credit-notes/${cn.creditNote.id}/gst`).expect(200)).body;
+    expect(cnGst.gst.invoice).toMatchObject({ taxable: 300, cgst: 27, sgst: 27, total: 354 });
+    expect(cnGst.gst.eInvoice).toBeNull();
+    const cnIrn = (await ops.post(`billing/credit-notes/${cn.creditNote.id}/einvoice`, {}).expect(200)).body;
+    expect(cnIrn.gst.eInvoice).toMatchObject({ status: 'generated', sandbox: true });
+    expect(cnIrn.gst.eInvoice.irn).not.toBe(irn.gst.eInvoice.irn);
+
+    await ops.post(`billing/bills/${draft.id}/einvoice/cancel`, { reasonCode: '9', remark: 'x' }).expect(400);
+    const cancelled = (await ops.post(`billing/bills/${draft.id}/einvoice/cancel`, { reasonCode: '2', remark: 'Wrong guest GSTIN' }).expect(200)).body;
+    expect(cancelled.gst.eInvoice).toMatchObject({ status: 'cancelled', cancelReason: 'Wrong guest GSTIN', qr: null });
+    expect(cancelled.history.at(-1)).toMatchObject({ action: 'E-invoice cancelled' });
   });
 
   it('works out the financial year from the date', () => {
