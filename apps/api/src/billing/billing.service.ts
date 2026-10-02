@@ -3,9 +3,13 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Error as MongooseError, Model, Types } from 'mongoose';
 import { MastersService } from '../masters/masters.service.js';
 import { Counter } from '../reservations/reservation.schema.js';
+import { rounder } from '../pricing/money.js';
 import { calculateBill, round2, type AType, type BillLineInput, type BillTotals, type Discount, type LineSource, type TaxRate } from './bill-engine.js';
 import { Bill, BillDocument, BillLine, BillStatus, PAYMENT_MODES, type PaymentMode } from './bill.schema.js';
+import { BillingSetupService } from './billing-setup.service.js';
 import { BOOKING_SOURCE, type BillingBooking, type BookingSource } from './booking-source.js';
+
+export { financialYear } from './series.js';
 
 export interface LineInput {
   /** Existing line to change; leave out for a new line. */
@@ -43,23 +47,11 @@ export interface PaymentInput {
 const BILLABLE: string[] = ['confirmed', 'inFunction', 'completed'];
 /** Lines added on the bill (running charges, hall hire, licence) can be changed freely while drafting. */
 const ADDED: LineSource[] = ['running', 'hallHire', 'liquorLicence'];
-/** Month the financial year starts (April). Series Setup will make this a per-property setting. */
-const FINANCIAL_YEAR_START_MONTH = 4;
-
 const CHANGED_ELSEWHERE = 'This bill was changed by someone else. Reload it and try again.';
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isMoney = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
 const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const hoursBetween = (start: string, end: string) => round2((Date.parse(`${end}:00Z`) - Date.parse(`${start}:00Z`)) / 3_600_000);
-
-/** Financial year label for a date, e.g. 2026-27 for 2026-10-01 when the year starts in April. */
-export function financialYear(date: string, startMonth = FINANCIAL_YEAR_START_MONTH) {
-  const y = Number(date.slice(0, 4));
-  const m = Number(date.slice(5, 7));
-  if (startMonth === 1) return String(y);
-  const first = m >= startMonth ? y : y - 1;
-  return `${first}-${String((first + 1) % 100).padStart(2, '0')}`;
-}
 
 export const STATUS_LABELS: Record<BillStatus, string> = {
   draft: 'Draft', finalised: 'Final', partiallySettled: 'Partly settled', settled: 'Settled', void: 'Void',
@@ -76,6 +68,7 @@ export class BillingService {
     @InjectModel(Counter.name) private readonly counters: Model<Counter>,
     @Inject(BOOKING_SOURCE) private readonly source: BookingSource,
     private readonly masters: MastersService,
+    private readonly setup: BillingSetupService,
   ) {}
 
   /** Everything the bill screen needs for one booking: the booking, its bills, and the proforma. */
@@ -83,9 +76,11 @@ export class BillingService {
     const booking = await this.booking(tenantId, reservationId);
     const bills = await this.bills.find({ tenantId, reservationId }).sort({ createdAt: -1 });
     const current = bills.find((b) => b.status !== 'void') ?? null;
+    const money = await this.setup.money(tenantId, booking.propertyId);
     return {
       booking: this.bookingView(booking),
-      proforma: { ...(await this.source.proforma(tenantId, booking.id)), advances: round2(booking.receipts.reduce((s, r) => s + r.amount, 0)) },
+      ...money,
+      proforma: { ...(await this.source.proforma(tenantId, booking.id)), advances: rounder(money.decimals)(booking.receipts.reduce((s, r) => s + r.amount, 0)) },
       bill: current ? await this.view(tenantId, current, booking) : null,
       voided: bills.filter((b) => b.status === 'void').map((b) => ({ id: b.id as string, number: b.number ?? null, voidReason: b.voidReason ?? '' })),
     };
@@ -104,7 +99,7 @@ export class BillingService {
       return {
         id: b.id as string, number: b.number ?? null, status: b.status, reservationId: b.reservationId,
         reservationNumber: b.reservationNumber, hostName: b.hostName, functionDate: b.functionDate, propertyId: b.propertyId,
-        total: totals?.total ?? null, balance: totals ? this.balance(b, totals.total) : null,
+        total: totals?.total ?? null, balance: totals ? this.balance(b, totals.total) : null, currency: b.currency ?? null,
       };
     });
   }
@@ -128,6 +123,7 @@ export class BillingService {
       throw new ConflictException(`${booking.number} already has a bill.`);
     }
     const lines = await this.bookingLines(tenantId, booking);
+    const { currency, decimals } = await this.setup.money(tenantId, booking.propertyId);
     let bill: BillDocument;
     try {
       bill = await this.bills.create({
@@ -139,6 +135,8 @@ export class BillingService {
         functionDate: booking.functionDate,
         status: 'draft',
         openFor: booking.id,
+        currency,
+        decimals,
         lines,
         roundTotal: await this.source.roundTotal(tenantId, booking.propertyId),
         history: [{ action: 'Draft created', at: new Date(), byUserId: userId }],
@@ -158,6 +156,7 @@ export class BillingService {
     if (!input || !Array.isArray(input.lines)) throw new BadRequestException('Invalid bill.');
     const booking = await this.booking(tenantId, bill.reservationId);
     const problems: string[] = [];
+    const round = rounder(bill.decimals ?? 2);
     const existing = new Map(bill.lines.map((l) => [l.id, l]));
     const lines: BillLine[] = [];
     const seen = new Set<string>();
@@ -168,16 +167,16 @@ export class BillingService {
       if (raw?.id && !old) { problems.push(`${where}: not on this bill.`); continue; }
       if (old && seen.has(old.id)) { problems.push(`${where}: listed twice.`); continue; }
       if (old) seen.add(old.id);
-      const line = old ? this.changeLine(old, raw, where, problems) : await this.newLine(tenantId, booking, raw, where, problems, bill.lines.length + n + 1);
+      const line = old ? this.changeLine(old, raw, where, problems, round) : await this.newLine(tenantId, booking, raw, where, problems, bill.lines.length + n + 1, round);
       if (!line) continue;
       line.taxIds = await this.taxIds(tenantId, booking.propertyId, line, raw.taxIds, where, problems);
-      line.discount = this.discount(raw.discount, line.discount, `${line.label}: discount`, problems);
+      line.discount = this.discount(raw.discount, line.discount, `${line.label}: discount`, problems, round);
       lines.push(line);
     }
     for (const l of bill.lines) {
       if (l.source === 'package' && !seen.has(l.id)) problems.push(`${l.label} is a booked package and cannot be removed from the bill.`);
     }
-    const billDiscount = this.discount(input.billDiscount, null, 'Bill discount', problems);
+    const billDiscount = this.discount(input.billDiscount, null, 'Bill discount', problems, round);
     if (problems.length) throw new BadRequestException([...new Set(problems)]);
 
     bill.lines = lines;
@@ -225,7 +224,8 @@ export class BillingService {
     if (problems.length) throw new BadRequestException(problems);
 
     const rates = await this.taxRates(tenantId, bill);
-    const advances = booking.receipts.filter((r) => r.amount > 0).map((r) => ({ number: r.number, date: r.date, amount: round2(r.amount), mode: r.mode }));
+    const round = rounder(bill.decimals ?? 2);
+    const advances = booking.receipts.filter((r) => r.amount > 0).map((r) => ({ number: r.number, date: r.date, amount: round(r.amount), mode: r.mode }));
     const totals = calculateBill(this.engineInput(bill, rates, booking, advances.reduce((s, a) => s + a.amount, 0)));
     const status = this.statusFor(totals.balance, advances.length > 0);
 
@@ -240,9 +240,7 @@ export class BillingService {
       { returnDocument: 'after' },
     );
     if (!locked) throw new ConflictException(CHANGED_ELSEWHERE);
-    const fy = financialYear(await this.masters.propertyToday(tenantId, bill.propertyId));
-    const seq = await this.next(tenantId, `bill:${bill.propertyId}:${fy}`);
-    const number = `B/${fy}/${String(seq).padStart(6, '0')}`;
+    const { number } = await this.setup.take(tenantId, bill.propertyId, 'bill');
     const done = (await this.bills.findOneAndUpdate(
       { _id: bill._id, tenantId },
       { $set: { number }, $push: { history: { action: `Finalised as ${number}`, at: new Date(), byUserId: userId } }, $inc: { __v: 1 } },
@@ -258,12 +256,14 @@ export class BillingService {
     if (bill.status !== 'finalised' && bill.status !== 'partiallySettled') throw new BadRequestException('Payments are taken on a final bill that is not yet settled.');
     if (!bill.number) throw new ConflictException('This bill is still being finalised. Reload it and try again.');
     const kind = input.kind ?? 'payment';
+    const dp = bill.decimals ?? 2;
+    const round = rounder(dp);
     const balance = this.balance(bill, bill.totals!.total);
     const problems: string[] = [];
     if (kind !== 'payment' && kind !== 'refund') problems.push('Choose payment or refund.');
-    if (!isMoney(input.amount) || round2(input.amount) <= 0) problems.push('Amount must be more than 0.');
-    else if (kind === 'payment' && round2(input.amount) > balance) problems.push(balance > 0 ? `The balance is ${balance.toFixed(2)}; take no more than that.` : 'Nothing is left to collect on this bill.');
-    else if (kind === 'refund' && round2(input.amount) > -balance) problems.push(balance < 0 ? `Only ${(-balance).toFixed(2)} is due back to the guest.` : 'Nothing is due back to the guest.');
+    if (!isMoney(input.amount) || round(input.amount) <= 0) problems.push('Amount must be more than 0.');
+    else if (kind === 'payment' && round(input.amount) > balance) problems.push(balance > 0 ? `The balance is ${balance.toFixed(dp)}; take no more than that.` : 'Nothing is left to collect on this bill.');
+    else if (kind === 'refund' && round(input.amount) > -balance) problems.push(balance < 0 ? `Only ${(-balance).toFixed(dp)} is due back to the guest.` : 'Nothing is due back to the guest.');
     if (!(PAYMENT_MODES as readonly string[]).includes(input.mode)) problems.push('Choose how the money was paid.');
     const today = await this.masters.propertyToday(tenantId, bill.propertyId);
     const date = input.date || today;
@@ -272,10 +272,10 @@ export class BillingService {
 
     const seq = await this.next(tenantId, kind === 'refund' ? 'billRefund' : 'billPayment');
     const payment = {
-      number: `${kind === 'refund' ? 'RF' : 'PY'}-${String(seq).padStart(6, '0')}`, kind, date, amount: round2(input.amount),
+      number: `${kind === 'refund' ? 'RF' : 'PY'}-${String(seq).padStart(6, '0')}`, kind, date, amount: round(input.amount),
       mode: input.mode, reference: text(input.reference, 100), byUserId: userId, at: new Date(),
     };
-    const after = this.balance({ advances: bill.advances, payments: [...bill.payments, payment] }, bill.totals!.total);
+    const after = this.balance({ advances: bill.advances, payments: [...bill.payments, payment], decimals: bill.decimals }, bill.totals!.total);
     const status = this.statusFor(after, true);
     // Matching on the number of payments stops two people settling the same balance at once.
     const done = await this.bills.findOneAndUpdate(
@@ -349,7 +349,7 @@ export class BillingService {
   }
 
   /** Changes allowed on a line already on the draft. */
-  private changeLine(old: BillLine, raw: LineInput, where: string, problems: string[]): BillLine {
+  private changeLine(old: BillLine, raw: LineInput, where: string, problems: string[], round: (n: number) => number): BillLine {
     // Lines are Mongoose sub-documents; copy their plain values.
     const plain = (old as BillLine & { toObject?: () => BillLine }).toObject?.() ?? old;
     const line: BillLine = { ...plain, remark: raw.remark !== undefined ? text(raw.remark, 200) : old.remark };
@@ -368,7 +368,7 @@ export class BillingService {
     if (ADDED.includes(old.source)) {
       if (raw.rate !== undefined) {
         if (!isMoney(raw.rate)) problems.push(`${old.label}: rate must be 0 or more.`);
-        else line.rate = round2(raw.rate);
+        else line.rate = round(raw.rate);
       }
       if (raw.taxInclusive !== undefined) line.taxInclusive = raw.taxInclusive === true;
       if (raw.label !== undefined && old.source === 'running' && !old.itemId) {
@@ -381,7 +381,9 @@ export class BillingService {
   }
 
   /** A line added on the bill: a running charge, hall hire or liquor licence. */
-  private async newLine(tenantId: Types.ObjectId, booking: BillingBooking, raw: LineInput, where: string, problems: string[], seq: number): Promise<BillLine | null> {
+  private async newLine(
+    tenantId: Types.ObjectId, booking: BillingBooking, raw: LineInput, where: string, problems: string[], seq: number, round: (n: number) => number,
+  ): Promise<BillLine | null> {
     if (!raw || !ADDED.includes(raw.source)) {
       problems.push(`${where}: only running charges, hall hire and liquor licence can be added on the bill. Packages come from the booking.`);
       return null;
@@ -390,7 +392,7 @@ export class BillingService {
     if (raw.rate !== undefined && !isMoney(raw.rate)) problems.push(`${where}: rate must be 0 or more.`);
     const base = {
       id: `N${seq}-${new Types.ObjectId().toHexString().slice(-6)}`, source: raw.source, actualPax: null,
-      qty: isMoney(raw.qty) ? round2(raw.qty) : 0, rate: isMoney(raw.rate) ? round2(raw.rate) : 0,
+      qty: isMoney(raw.qty) ? round2(raw.qty) : 0, rate: isMoney(raw.rate) ? round(raw.rate) : 0,
       taxInclusive: raw.taxInclusive === true, taxIds: [], discount: null, remark: text(raw.remark, 200),
     };
 
@@ -410,7 +412,7 @@ export class BillingService {
       if (!item?.active) { problems.push(`${where}: choose an active item.`); return null; }
       const aType = kind === 'modifier' ? 'alacarte' : (item.values.aType as AType);
       if (aType === 'package') { problems.push(`${where}: package items are billed through the package.`); return null; }
-      const rate = raw.rate !== undefined ? base.rate : round2((kind === 'modifier' ? item.values.rate : item.values.defaultRate) as number);
+      const rate = raw.rate !== undefined ? base.rate : round((kind === 'modifier' ? item.values.rate : item.values.defaultRate) as number);
       return { ...base, rate, aType, kind, itemId: item.id as string, label: String(item.values.description) };
     }
     const label = text(raw.label, 120);
@@ -434,14 +436,17 @@ export class BillingService {
     return ids;
   }
 
-  private discount(raw: Discount | null | undefined, current: { type: 'percent' | 'amount'; value: number; reason: string } | null, label: string, problems: string[]) {
+  private discount(
+    raw: Discount | null | undefined, current: { type: 'percent' | 'amount'; value: number; reason: string } | null, label: string, problems: string[],
+    round: (n: number) => number,
+  ) {
     if (raw === undefined) return current;
     if (raw === null || raw.value === 0) return null;
     if (raw.type !== 'percent' && raw.type !== 'amount') { problems.push(`${label}: choose percent or amount.`); return current; }
     if (!isMoney(raw.value) || (raw.type === 'percent' && raw.value > 100)) { problems.push(`${label}: enter a ${raw.type === 'percent' ? 'percentage from 0 to 100' : 'positive amount'}.`); return current; }
     const reason = text(raw.reason, 200);
     if (!reason) { problems.push(`${label}: give a reason.`); return current; }
-    return { type: raw.type, value: round2(raw.value), reason };
+    return { type: raw.type, value: raw.type === 'percent' ? round2(raw.value) : round(raw.value), reason };
   }
 
   /** Tax rates for every tax on the bill, valid on the function date. Taxes not valid then are left out. */
@@ -452,21 +457,24 @@ export class BillingService {
     return new Map(rates.map((t) => [t.id, t]));
   }
 
-  private engineInput(bill: Pick<Bill, 'lines' | 'billDiscount' | 'roundTotal'>, rates: Map<string, TaxRate>, booking: BillingBooking | null, advances: number, paid = 0) {
+  private engineInput(bill: Pick<Bill, 'lines' | 'billDiscount' | 'roundTotal' | 'decimals'>, rates: Map<string, TaxRate>, booking: BillingBooking | null, advances: number, paid = 0) {
     const lines: BillLineInput[] = bill.lines.map((l) => ({
       id: l.id, source: l.source, aType: l.aType, label: l.label, guaranteedPax: l.guaranteedPax, actualPax: l.actualPax,
       qty: l.qty, rate: l.rate, taxInclusive: l.taxInclusive, discount: l.discount,
       taxes: l.taxIds.map((id) => rates.get(id)).filter((t): t is TaxRate => !!t),
     }));
-    return { lines, billDiscount: bill.billDiscount, roundTotal: bill.roundTotal, advances, paid, expectedMaxPax: booking?.expectedMaxPax };
+    return {
+      lines, billDiscount: bill.billDiscount, roundTotal: bill.roundTotal, advances, paid, expectedMaxPax: booking?.expectedMaxPax, decimals: bill.decimals ?? 2,
+    };
   }
 
-  private paidOf(payments: { kind: string; amount: number }[]) {
-    return round2(payments.reduce((s, p) => s + (p.kind === 'refund' ? -p.amount : p.amount), 0));
+  private paidOf(payments: { kind: string; amount: number }[], decimals = 2) {
+    return rounder(decimals)(payments.reduce((s, p) => s + (p.kind === 'refund' ? -p.amount : p.amount), 0));
   }
 
-  private balance(bill: { advances: { amount: number }[]; payments: { kind: string; amount: number }[] }, total: number) {
-    return round2(total - bill.advances.reduce((s, a) => s + a.amount, 0) - this.paidOf(bill.payments));
+  private balance(bill: { advances: { amount: number }[]; payments: { kind: string; amount: number }[]; decimals?: number }, total: number) {
+    const dp = bill.decimals ?? 2;
+    return rounder(dp)(total - bill.advances.reduce((s, a) => s + a.amount, 0) - this.paidOf(bill.payments, dp));
   }
 
   private statusFor(balance: number, anyMoney: boolean): BillStatus {
@@ -493,12 +501,14 @@ export class BillingService {
 
   private async view(tenantId: Types.ObjectId, bill: BillDocument, booking: BillingBooking | null) {
     let totals: BillTotals;
+    const decimals = bill.decimals ?? 2;
+    const round = rounder(decimals);
     const advances = bill.status === 'draft'
-      ? round2((booking?.receipts ?? []).reduce((s, r) => s + r.amount, 0))
-      : round2(bill.advances.reduce((s, a) => s + a.amount, 0));
-    const paid = this.paidOf(bill.payments);
+      ? round((booking?.receipts ?? []).reduce((s, r) => s + r.amount, 0))
+      : round(bill.advances.reduce((s, a) => s + a.amount, 0));
+    const paid = this.paidOf(bill.payments, decimals);
     if (bill.totals) {
-      totals = { ...bill.totals, advances, paid, balance: round2(bill.totals.total - advances - paid), warnings: [] };
+      totals = { ...bill.totals, advances, paid, balance: round(bill.totals.total - advances - paid), warnings: [] };
     } else {
       totals = calculateBill(this.engineInput(bill, await this.taxRates(tenantId, bill), booking, advances, paid));
     }
@@ -512,6 +522,8 @@ export class BillingService {
       hostName: bill.hostName,
       functionDate: bill.functionDate,
       roundTotal: bill.roundTotal,
+      currency: bill.currency ?? null,
+      decimals,
       billDiscount: bill.billDiscount ?? null,
       finalisedAt: bill.finalisedAt ?? null,
       voidReason: bill.voidReason ?? null,

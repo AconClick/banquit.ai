@@ -161,7 +161,7 @@ Banquet.ai's own support team sometimes needs to get into a client's account aft
 5. **Visible to the client.** The client's admin sees every support session (who, when, reason, what was changed) in a **Support Access Log** in the Master panel, and gets an email when one starts.
 6. **Client control.** A Master Settings option, **Banquet.ai support access**, decides how support gets in:
    - **Allowed** (default): support can enter at any time; the client is notified.
-   - **Ask each time**: the client's admin must approve each request in the app before the session opens. (Approving by a link in the email is not built yet; the email points to Master › Support Access.)
+   - **Ask each time**: the client's admin must approve each request before the session opens, either in Master › Support Access or from the **approve/decline link in the request email**. The link is a random one-time token (only its hash is stored), works only on that client's address, expires after 24 hours, and stops working as soon as the request is answered either way. Opening the link only shows the request; approving needs a button press, so email scanners that open links do nothing.
    - **Emergency override**: a Banquet.ai manager can still enter under "Ask each time" if the client cannot be reached, and the client is notified immediately.
 7. **Support users never appear** in the tenant's User Management list and do not count towards any user licence limit.
 

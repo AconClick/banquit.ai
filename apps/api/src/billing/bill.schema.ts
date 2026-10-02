@@ -158,6 +158,13 @@ export class Bill {
   @Prop()
   openFor?: string;
 
+  /** The property's currency when the bill was drafted, and its decimals (3 for KWD). Older bills: INR, 2. */
+  @Prop()
+  currency?: string;
+
+  @Prop()
+  decimals?: number;
+
   /** From the bill series when finalised, e.g. B/2026-27/000001. */
   @Prop()
   number?: string;

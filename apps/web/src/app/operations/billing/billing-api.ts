@@ -1,6 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
+import { formatMoney } from '../../core/money';
 import type { AType, Proforma, TaxAmount } from '../booking/booking-api';
 
 export type BillStatus = 'draft' | 'finalised' | 'partiallySettled' | 'settled' | 'void';
@@ -56,6 +57,9 @@ export interface Bill {
   hostName: string;
   functionDate: string;
   roundTotal: boolean;
+  /** The property's currency when the bill was drafted, and its decimals (3 for KWD). */
+  currency: string | null;
+  decimals: number;
   billDiscount: Discount | null;
   finalisedAt: string | null;
   voidReason: string | null;
@@ -93,6 +97,8 @@ export interface BillingBooking {
 
 export interface BillingView {
   booking: BillingBooking;
+  currency: string;
+  decimals: number;
   proforma: Proforma & { advances: number };
   bill: Bill | null;
   voided: { id: string; number: string | null; voidReason: string }[];
@@ -109,6 +115,7 @@ export interface BillListRow {
   propertyId: string;
   total: number | null;
   balance: number | null;
+  currency: string | null;
 }
 
 /** A line as sent to the server when saving a draft. */
@@ -148,6 +155,5 @@ export class BillingApi {
   void = (id: string, reason: string) => firstValueFrom(this.http.post<Bill>(`/api/billing/bills/${id}/void`, { reason }));
 }
 
-/** 12,345.60 style, without a currency sign (the property's currency is shown once). */
-export const money = (n: number | null | undefined) =>
-  n === null || n === undefined ? '' : n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** 12,345.60 style (12,345.600 for a dinar), without a currency sign: the property's currency is shown once. */
+export const money = (n: number | null | undefined, decimalsOrCurrency: number | string | null = 2) => formatMoney(n, decimalsOrCurrency);

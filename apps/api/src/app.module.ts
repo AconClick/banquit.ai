@@ -7,6 +7,8 @@ import { AuthController } from './auth/auth.controller.js';
 import { AuthGuard } from './auth/auth.guard.js';
 import { AuthService } from './auth/auth.service.js';
 import { Bill, BillSchema } from './billing/bill.schema.js';
+import { BillingSetup, BillingSetupSchema } from './billing/billing-setup.schema.js';
+import { BillingSetupService } from './billing/billing-setup.service.js';
 import { BillingController } from './billing/billing.controller.js';
 import { BillingService } from './billing/billing.service.js';
 import { BOOKING_SOURCE, ReservationBookingSource } from './billing/booking-source.js';
@@ -34,7 +36,7 @@ import { ReportsController } from './reports/reports.controller.js';
 import { ReportsService } from './reports/reports.service.js';
 import { RolesController } from './roles/roles.controller.js';
 import { RolesService } from './roles/roles.service.js';
-import { SupportAccessController, SupportConsoleController, SupportConsoleGuard, SupportSessionController, SupportStaffController } from './support/support.controller.js';
+import { SupportAccessController, SupportApprovalController, SupportConsoleController, SupportConsoleGuard, SupportSessionController, SupportStaffController } from './support/support.controller.js';
 import { SupportSession, SupportSessionSchema, SupportUser, SupportUserSchema } from './support/support.schema.js';
 import { SupportService } from './support/support.service.js';
 import { Tenant, TenantSchema } from './tenants/tenant.schema.js';
@@ -58,6 +60,7 @@ import { UsersService } from './users/users.service.js';
       { name: PropertyRate.name, schema: PropertyRateSchema },
       { name: PropertySettings.name, schema: PropertySettingsSchema },
       { name: Bill.name, schema: BillSchema },
+      { name: BillingSetup.name, schema: BillingSetupSchema },
       { name: SupportUser.name, schema: SupportUserSchema },
       { name: SupportSession.name, schema: SupportSessionSchema },
       { name: ReportSummary.name, schema: ReportSummarySchema },
@@ -67,9 +70,9 @@ import { UsersService } from './users/users.service.js';
     NotificationsModule,
   ],
   controllers: [HealthController, TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController,
-    SupportConsoleController, SupportSessionController, SupportAccessController, SupportStaffController],
+    SupportConsoleController, SupportSessionController, SupportAccessController, SupportApprovalController, SupportStaffController],
   providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, ReportCacheService, AuthGuard,
-    RateLimiter, { provide: ErrorReporter, useClass: LogErrorReporter }, { provide: APP_FILTER, useClass: ReportingExceptionFilter }, BillingService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
+    RateLimiter, { provide: ErrorReporter, useClass: LogErrorReporter }, { provide: APP_FILTER, useClass: ReportingExceptionFilter }, BillingService, BillingSetupService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

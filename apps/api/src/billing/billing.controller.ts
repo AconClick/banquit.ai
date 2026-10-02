@@ -1,11 +1,12 @@
 import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsIn, IsNumber, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { AuthGuard, RequirePermission } from '../auth/auth.guard.js';
 import { CurrentAuth, CurrentTenant, type AuthContext } from '../common/request-context.js';
 import type { TenantDocument } from '../tenants/tenant.schema.js';
 import type { LineSource } from './bill-engine.js';
 import { BILL_STATUSES, PAYMENT_MODES, type PaymentMode } from './bill.schema.js';
+import { BillingSetupService } from './billing-setup.service.js';
 import { BillingService } from './billing.service.js';
 
 const SOURCES: LineSource[] = ['package', 'extra', 'running', 'hallHire', 'liquorLicence'];
@@ -50,10 +51,47 @@ class VoidDto {
   @IsString() @MaxLength(300) reason: string;
 }
 
+class SeriesDto {
+  @IsString() @MaxLength(40) prefix: string;
+  @IsInt() digits: number;
+  @IsBoolean() resetYearly: boolean;
+}
+
+class SeriesSetDto {
+  @IsOptional() @ValidateNested() @Type(() => SeriesDto) bill?: SeriesDto;
+  @IsOptional() @ValidateNested() @Type(() => SeriesDto) creditNote?: SeriesDto;
+}
+
+class NextNumbersDto {
+  @IsOptional() @IsInt() bill?: number;
+  @IsOptional() @IsInt() creditNote?: number;
+}
+
+class SetupDto {
+  @IsOptional() @IsInt() fyStartMonth?: number;
+  @IsOptional() @ValidateNested() @Type(() => SeriesSetDto) series?: SeriesSetDto;
+  @IsOptional() @ValidateNested() @Type(() => NextNumbersDto) nextNumbers?: NextNumbersDto;
+}
+
 @Controller('billing')
 @UseGuards(AuthGuard)
 export class BillingController {
-  constructor(private readonly billing: BillingService) {}
+  constructor(
+    private readonly billing: BillingService,
+    private readonly setup: BillingSetupService,
+  ) {}
+
+  @Get('setup/:propertyId')
+  @RequirePermission('billing.setup')
+  getSetup(@CurrentTenant() tenant: TenantDocument, @Param('propertyId') propertyId: string) {
+    return this.setup.view(tenant._id, propertyId);
+  }
+
+  @Put('setup/:propertyId')
+  @RequirePermission('billing.setup')
+  saveSetup(@CurrentTenant() tenant: TenantDocument, @Param('propertyId') propertyId: string, @Body() body: SetupDto) {
+    return this.setup.save(tenant._id, propertyId, body);
+  }
 
   @Get('bills')
   @RequirePermission('billing.manage')
