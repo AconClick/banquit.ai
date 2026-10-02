@@ -13,6 +13,22 @@ export interface SignupInput {
   contactMobile: string;
 }
 
+/**
+ * Full link to a page of a tenant's app: its first verified custom domain, else its sub-domain.
+ * On a single shared address (config.singleHost) the link carries the Domain instead, so the page
+ * knows which client it is for.
+ */
+export function tenantUrl(tenant: Pick<Tenant, 'customDomains' | 'subdomain'>, path: string, params: Record<string, string> = {}): string {
+  const query = new URLSearchParams(params);
+  let host = tenant.customDomains.find((d) => d.verified)?.domain ?? `${tenant.subdomain}.${config.baseDomain}`;
+  if (config.singleHost) {
+    host = config.singleHost;
+    query.set('domain', tenant.subdomain);
+  }
+  const q = query.toString();
+  return `https://${host}${path}${q ? `?${q}` : ''}`;
+}
+
 @Injectable()
 export class TenantsService {
   constructor(@InjectModel(Tenant.name) private readonly tenants: Model<Tenant>) {}
@@ -57,9 +73,15 @@ export class TenantsService {
     return null;
   }
 
-  /** Address the login page lives at: the first verified custom domain, else the sub-domain. */
+  /** Address the login page lives at: the shared host in single-host mode, else the first verified custom domain, else the sub-domain. */
   loginHost(tenant: Tenant): string {
+    if (config.singleHost) return config.singleHost;
     return tenant.customDomains.find((d) => d.verified)?.domain ?? `${tenant.subdomain}.${config.baseDomain}`;
+  }
+
+  /** Full link to a page of the tenant's app, for emails. */
+  loginUrl(tenant: Tenant, path = '/login', params: Record<string, string> = {}): string {
+    return tenantUrl(tenant, path, params);
   }
 
   async addCustomDomain(tenant: TenantDocument, domain: string, verified: boolean) {

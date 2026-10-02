@@ -167,7 +167,7 @@ export class AuthService {
       channel: 'email',
       to: user.email,
       subject: 'Reset your Banquet.ai password',
-      body: `Open https://${this.tenants.loginHost(tenant)}/reset-password?token=${token} within ${authRules.resetLinkMinutes} minutes to set a new password.`,
+      body: `Open ${this.tenants.loginUrl(tenant, '/reset-password', { token })} within ${authRules.resetLinkMinutes} minutes to set a new password.`,
     });
   }
 

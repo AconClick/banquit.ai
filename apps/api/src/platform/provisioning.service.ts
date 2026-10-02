@@ -36,7 +36,7 @@ export class ProvisioningService {
         roleId: builtIns.enterprise.id as string,
       },
       'entp',
-      this.tenants.loginHost(tenant),
+      this.tenants.loginUrl(tenant),
     );
     return tenant;
   }
@@ -48,7 +48,7 @@ export class ProvisioningService {
       tenant._id,
       { ...input, roleId: builtIns.implementation.id as string },
       'implementation',
-      this.tenants.loginHost(tenant),
+      this.tenants.loginUrl(tenant),
     );
   }
 }
