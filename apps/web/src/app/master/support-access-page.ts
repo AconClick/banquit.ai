@@ -24,7 +24,7 @@ interface AccessLog {
         <label class="choice"><input type="radio" name="access" value="allowed" [ngModel]="l.supportAccess" (ngModelChange)="setAccess($event)" [disabled]="busy()" />
           <span><strong>Allowed</strong><small class="muted">Support may enter with a reason. You get an email each time.</small></span></label>
         <label class="choice"><input type="radio" name="access" value="ask" [ngModel]="l.supportAccess" (ngModelChange)="setAccess($event)" [disabled]="busy()" />
-          <span><strong>Ask me each time</strong><small class="muted">Support waits for your approval here. A Banquet.ai manager can still enter in an emergency, and you are told.</small></span></label>
+          <span><strong>Ask me each time</strong><small class="muted">Support waits for your approval, here or from the link in the email. A Banquet.ai manager can still enter in an emergency, and you are told.</small></span></label>
         <p class="muted hint">Support can only look until they switch to edit mode with a second reason. Every change they make is listed below. Sessions end after 4 hours.</p>
       </section>
 

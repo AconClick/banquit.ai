@@ -111,6 +111,9 @@ export interface Revenue extends ReportHeader {
   byAType: { key: string; label: string; taxable: number; tax: number; total: number }[];
   bySource: { key: string; label: string; taxable: number; tax: number; total: number }[];
   taxes: { id: string; name: string; amount: number }[];
+  /** Final bills in the range; the list below holds at most `billLimit`, earliest first. */
+  billCount: number;
+  billLimit: number;
   bills: {
     id: string;
     number: string;

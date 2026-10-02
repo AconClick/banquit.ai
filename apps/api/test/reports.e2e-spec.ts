@@ -147,6 +147,41 @@ describe('Reports and forecast', () => {
     expect(theirs.body.bills).toHaveLength(0);
   });
 
+  it('shows changes to bookings at once, after the report was read', async () => {
+    const s = await setUp('cachehotel');
+    const api = as(s.host, s.token);
+    const get = async (report: string, from: string, to: string) => (await api.get(`reports/${report}?from=${from}&to=${to}&propertyId=${s.property}`).expect(200)).body;
+    const roof = (rows: { hallName: string }[]) => rows.find((r) => r.hallName === 'Roof Top Hall');
+    // Read first, so September and October are summarised before anything is booked.
+    expect((await get('bookings-by-status', '2030-09-01', '2030-10-31')).total.bookings).toBe(0);
+
+    const body = {
+      propertyId: s.property, status: 'provisional', hostName: 'Cache Test', phone: '+919800000222', functionTypeId: s.wedding,
+      guaranteedPax: 50, expectedMaxPax: 60, slots: [{ hallId: s.roof, start: '2030-09-10T12:00', end: '2030-09-10T16:00' }],
+    };
+    const r = (await api.post('reservations', body).expect(201)).body;
+    expect((await get('bookings-by-status', '2030-09-01', '2030-09-30')).rows).toEqual([{ status: 'provisional', bookings: 1, guaranteedPax: 50, expectedMaxPax: 60 }]);
+    expect(roof((await get('hall-occupancy', '2030-09-01', '2030-09-30')).rows)).toMatchObject({ functions: 1, provisionalHours: 4, daysUsed: 1 });
+
+    // Moved to October, over midnight: September no longer counts it.
+    await t.http().put(`/api/reservations/${r.id}`).set('Host', s.host).auth(s.token, auth)
+      .send({ ...body, amendmentReasonId: s.amendReason, slots: [{ hallId: s.roof, start: '2030-10-05T18:00', end: '2030-10-06T02:00' }] }).expect(200);
+    expect((await get('bookings-by-status', '2030-09-01', '2030-09-30')).total.bookings).toBe(0);
+    expect(roof((await get('hall-occupancy', '2030-09-01', '2030-09-30')).rows)).toMatchObject({ functions: 0, provisionalHours: 0 });
+    expect(roof((await get('hall-occupancy', '2030-09-01', '2030-10-31')).rows)).toMatchObject({ functions: 1, provisionalHours: 8, daysUsed: 2 });
+
+    // Lost: still counted by status, but it no longer holds the hall.
+    await api.post(`reservations/${r.id}/status`, { status: 'lost' }).expect(200);
+    expect((await get('bookings-by-status', '2030-10-01', '2030-10-31')).rows).toEqual([{ status: 'lost', bookings: 1, guaranteedPax: 50, expectedMaxPax: 60 }]);
+    expect(roof((await get('hall-occupancy', '2030-10-01', '2030-10-31')).rows)).toMatchObject({ functions: 0, provisionalHours: 0 });
+    const today = new Date().toISOString().slice(0, 10);
+    expect((await get('enquiry-conversion', today, today)).total).toMatchObject({ received: 1, lost: 1 });
+  });
+
+  it('lists function sheets for up to 62 days', async () => {
+    await as(host, token).get(`reports/function-sheets?${range(day, '2030-09-30')}`).expect(400);
+  });
+
   it('covers every property when none is chosen', async () => {
     const res = await as(host, token).get(`reports/hall-occupancy?from=${day}&to=2030-07-07`).expect(200);
     expect(res.body.propertyId).toBeNull();

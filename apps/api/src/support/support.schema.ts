@@ -122,8 +122,16 @@ export class SupportSession {
 
   @Prop({ type: [SupportAction], default: [] })
   actions: SupportAction[];
+
+  /** Hash of the one-time approve/decline link emailed to the client (Ask each time). */
+  @Prop({ select: false })
+  approvalTokenHash?: string;
+
+  @Prop()
+  approvalExpiresAt?: Date;
 }
 
 export type SupportSessionDocument = HydratedDocument<SupportSession>;
 export const SupportSessionSchema = SchemaFactory.createForClass(SupportSession);
 SupportSessionSchema.index({ supportUserId: 1, requestedAt: -1 });
+SupportSessionSchema.index({ approvalTokenHash: 1 }, { sparse: true });

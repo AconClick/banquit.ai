@@ -114,6 +114,48 @@ describe('Banquet.ai support login', () => {
     expect(t.lastMessage('owner@helpme.test').body).toMatch(/emergency override/);
   });
 
+  it('lets the client answer from the emailed link, once, before it expires', async () => {
+    const login = (await t.http().post('/api/support/login').send({ email: 'agent@banquet.ai', password: 'Support2026x' }).expect(200)).body;
+    const agent = (await t.http().post('/api/support/otp/verify')
+      .send({ otpToken: login.otpToken, code: t.otpIn(t.lastMessage('agent@banquet.ai').body) }).expect(200)).body.token as string;
+    const ask = (reason: string) => t.http().post('/api/support/sessions').auth(agent, auth).send({ subdomain: 'helpme', reason }).expect(201);
+    const linkIn = (body: string) => /support-approval\?token=([0-9a-f]{64})/.exec(body)![1];
+
+    const first = (await ask('Menu prices look wrong on bills')).body;
+    const mail = t.lastMessage('owner@helpme.test').body;
+    expect(mail).toMatch(/https:\/\/helpme\.banquet\.ai\/support-approval\?token=/);
+    const token = linkIn(mail);
+
+    // Opening the link only shows the request.
+    const seen = (await t.http().get(`/api/support-approval?token=${token}`).expect(200)).body;
+    expect(seen).toMatchObject({ id: first.id, status: 'pending', reason: 'Menu prices look wrong on bills', tenant: { subdomain: 'helpme' } });
+    // Not on another client's address, and not with a made-up token.
+    await t.http().get(`/api/support-approval?token=${token}`).set('Host', 'other.banquet.ai').expect(400);
+    await t.http().post('/api/support-approval').send({ token: 'f'.repeat(64), approve: true }).expect(400);
+
+    const done = (await t.http().post('/api/support-approval').send({ token, approve: true }).expect(200)).body;
+    expect(done).toMatchObject({ status: 'active', decidedBy: 'Owner (by email link)' });
+    await t.http().post('/api/support-approval').send({ token, approve: false }).expect(400);
+    await t.http().get(`/api/support-approval?token=${token}`).expect(400);
+    await t.http().post(`/api/support/sessions/${first.id}/enter`).auth(agent, auth).send({ activity: 'operations' }).expect(200);
+
+    // Answering in the app uses up the link too.
+    const second = (await ask('Second look at the menu prices')).body;
+    const token2 = linkIn(t.lastMessage('owner@helpme.test').body);
+    await t.http().post(`/api/support-access/${second.id}/deny`).set('Host', host).auth(entp, auth).expect(200);
+    await t.http().post('/api/support-approval').send({ token: token2, approve: true }).expect(400);
+
+    // An expired link does nothing; the request can still be answered in the app.
+    const third = (await ask('Third look at the menu prices')).body;
+    const token3 = linkIn(t.lastMessage('owner@helpme.test').body);
+    await t.app.get<Connection>(getConnectionToken()).collection('supportsessions')
+      .updateOne({ reason: 'Third look at the menu prices' }, { $set: { approvalExpiresAt: new Date(Date.now() - 1000) } });
+    await t.http().post('/api/support-approval').send({ token: token3, approve: true }).expect(400);
+    const log = (await t.http().get('/api/support-access').set('Host', host).auth(entp, auth).expect(200)).body;
+    expect(log.sessions.find((x: { id: string }) => x.id === third.id).status).toBe('pending');
+    expect(JSON.stringify(log)).not.toMatch(/approvalTokenHash/);
+  });
+
   it('ends after the time limit', async () => {
     const db = t.app.get<Connection>(getConnectionToken());
     const login = (await t.http().post('/api/support/login').send({ email: 'agent@banquet.ai', password: 'Support2026x' }).expect(200)).body;
