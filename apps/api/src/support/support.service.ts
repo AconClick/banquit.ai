@@ -10,7 +10,7 @@ import { checkPassword, generateOtp, generatePassword, hashPassword, passwordPro
 import { Notifier } from '../notifications/notifier.js';
 import { ACTIVITIES, ALL_PERMISSIONS, type Activity } from '../roles/permissions.js';
 import { Tenant, TenantDocument } from '../tenants/tenant.schema.js';
-import { SupportSession, SupportSessionDocument, SupportUser, SupportUserDocument } from './support.schema.js';
+import { SUPPORT_ROLES, SupportSession, SupportSessionDocument, SupportUser, SupportUserDocument, type SupportRole } from './support.schema.js';
 
 /** Token for the Banquet.ai admin console (no tenant). */
 export interface ConsoleTokenPayload {
@@ -90,14 +90,14 @@ export class SupportService {
 
   // ---- Support staff accounts (created by the platform admin) ----
 
-  async createStaff(input: { email: string; name: string; mobile?: string; role?: 'agent' | 'manager' }) {
+  async createStaff(input: { email: string; name: string; mobile?: string; role?: SupportRole }) {
     const email = (input.email ?? '').trim().toLowerCase();
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new BadRequestException('Enter a valid email.');
     if (!input.name?.trim()) throw new BadRequestException('Name is required.');
     if (await this.staff.exists({ email })) throw new ConflictException('A support user with this email already exists.');
     const password = generatePassword();
     const user = await this.staff.create({
-      email, name: input.name.trim(), mobile: (input.mobile ?? '').trim(), role: input.role === 'manager' ? 'manager' : 'agent',
+      email, name: input.name.trim(), mobile: (input.mobile ?? '').trim(), role: SUPPORT_ROLES.includes(input.role as SupportRole) ? input.role : 'agent',
       passwordHash: await hashPassword(password),
     });
     await this.notifier.send({
@@ -188,7 +188,70 @@ export class SupportService {
   }
 
   async logout(user: SupportUserDocument) {
-    await this.staff.updateOne({ _id: user._id }, { $unset: { sessionId: 1 } });
+    await this.signOut(user._id);
+  }
+
+  // ---- Support staff management (admin console) ----
+
+  async listStaff() {
+    const list = await this.staff.find().sort({ active: -1, name: 1 });
+    return list.map((u) => ({ ...supportUserView(u), lastSeenAt: u.lastSeenAt ?? null }));
+  }
+
+  async updateStaff(actor: SupportUserDocument, id: string, input: { name?: string; mobile?: string; role?: SupportRole; active?: boolean }) {
+    const user = Types.ObjectId.isValid(id) ? await this.staff.findById(id) : null;
+    if (!user) throw new NotFoundException('Support user not found.');
+    const self = String(user._id) === String(actor._id);
+    if (self && input.active === false) throw new BadRequestException('You cannot disable yourself.');
+    if (self && input.role && input.role !== 'admin') throw new BadRequestException('Another admin must change your role.');
+    if (input.name !== undefined) {
+      if (!input.name.trim()) throw new BadRequestException('Name is required.');
+      user.name = input.name.trim();
+    }
+    if (input.mobile !== undefined) user.mobile = input.mobile.trim();
+    if (input.role !== undefined) {
+      if (!SUPPORT_ROLES.includes(input.role)) throw new BadRequestException('Choose agent, manager or admin.');
+      user.role = input.role;
+    }
+    if (input.active !== undefined) user.active = input.active;
+    await user.save();
+    if (input.active === false) await this.signOut(user._id, true);
+    return { ...supportUserView(user), lastSeenAt: user.lastSeenAt ?? null };
+  }
+
+  /** Emails a new temporary password; the person must choose their own at the next login. */
+  async resetStaffPassword(id: string) {
+    const user = Types.ObjectId.isValid(id) ? await this.staff.findById(id) : null;
+    if (!user) throw new NotFoundException('Support user not found.');
+    const password = generatePassword();
+    user.passwordHash = await hashPassword(password);
+    user.mustChangePassword = true;
+    user.failedLogins = 0;
+    user.set('lockedUntil', undefined);
+    await user.save();
+    await this.signOut(user._id);
+    await this.notifier.send({
+      channel: 'email', to: user.email, subject: 'Your Banquet.ai support password was reset',
+      body: `A Banquet.ai admin reset your support console login. Log in as ${user.email} with the temporary password ${password}. You will set your own password after you log in.`,
+    });
+    return { ...supportUserView(user), lastSeenAt: user.lastSeenAt ?? null };
+  }
+
+  /**
+   * Ends the console login and every support session the person has open, so nothing they started
+   * outlives it. Requests still waiting for a client stay, unless the person is disabled.
+   */
+  private async signOut(userId: Types.ObjectId, withRequests = false) {
+    await this.staff.updateOne({ _id: userId }, { $unset: { sessionId: 1 } });
+    await this.sessions.updateMany(
+      { supportUserId: userId, status: { $in: withRequests ? ['active', 'pending'] : ['active'] } },
+      { $set: { status: 'ended', endedAt: new Date() } },
+    );
+  }
+
+  /** Ends every open support session in one client's account (used when the account is suspended). */
+  async endSessionsFor(tenantId: Types.ObjectId) {
+    await this.sessions.updateMany({ tenantId, status: { $in: ['active', 'pending'] } }, { $set: { status: 'ended', endedAt: new Date() } });
   }
 
   // ---- Entering a tenant ----
@@ -209,7 +272,7 @@ export class SupportService {
     if (!tenant) throw new NotFoundException('No active client with this domain.');
     const reason = (input.reason ?? '').trim();
     if (reason.length < 10) throw new BadRequestException('Give a reason of at least 10 characters (what you need to check or fix).');
-    if (input.emergency && user.role !== 'manager') throw new ForbiddenException('Only a support manager can use the emergency override.');
+    if (input.emergency && user.role === 'agent') throw new ForbiddenException('Only a support manager can use the emergency override.');
     const ask = tenant.supportAccess === 'ask' && !input.emergency;
     const now = new Date();
     const link = ask ? randomToken() : null;

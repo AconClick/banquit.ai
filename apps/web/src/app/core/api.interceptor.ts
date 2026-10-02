@@ -17,8 +17,8 @@ export const apiInterceptor: HttpInterceptorFn = (req, next) => {
   let headers = req.headers.set('X-Banquet-Csrf', '1');
   const domain = tenant.headerDomain();
   if (domain) headers = headers.set('X-Tenant', domain);
-  // A request that carries its own token (the support console) is not about this app's session.
-  const ownToken = req.headers.has('Authorization');
+  // The Banquet.ai console has its own login; its 401s are not about this app's session.
+  const ownToken = req.headers.has('Authorization') || /^\/api\/(support|admin)\//.test(req.url);
 
   return next(req.clone({ headers })).pipe(
     catchError((err: HttpErrorResponse) => {

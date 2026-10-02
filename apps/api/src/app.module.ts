@@ -36,7 +36,11 @@ import { ReportsController } from './reports/reports.controller.js';
 import { ReportsService } from './reports/reports.service.js';
 import { RolesController } from './roles/roles.controller.js';
 import { RolesService } from './roles/roles.service.js';
-import { SupportAccessController, SupportApprovalController, SupportConsoleController, SupportConsoleGuard, SupportSessionController, SupportStaffController } from './support/support.controller.js';
+import { AdminController } from './admin/admin.controller.js';
+import { AdminAction, AdminActionSchema, Plan, PlanSchema, PlatformPayment, PlatformPaymentSchema } from './admin/admin.schema.js';
+import { AdminService } from './admin/admin.service.js';
+import { DnsLookup, NodeDnsLookup } from './admin/dns.js';
+import { AdminConsoleGuard, SupportAccessController, SupportApprovalController, SupportConsoleController, SupportConsoleGuard, SupportSessionController, SupportStaffController } from './support/support.controller.js';
 import { SupportSession, SupportSessionSchema, SupportUser, SupportUserSchema } from './support/support.schema.js';
 import { SupportService } from './support/support.service.js';
 import { Tenant, TenantSchema } from './tenants/tenant.schema.js';
@@ -63,6 +67,9 @@ import { UsersService } from './users/users.service.js';
       { name: BillingSetup.name, schema: BillingSetupSchema },
       { name: SupportUser.name, schema: SupportUserSchema },
       { name: SupportSession.name, schema: SupportSessionSchema },
+      { name: Plan.name, schema: PlanSchema },
+      { name: PlatformPayment.name, schema: PlatformPaymentSchema },
+      { name: AdminAction.name, schema: AdminActionSchema },
       { name: ReportSummary.name, schema: ReportSummarySchema },
       { name: ReportWatermark.name, schema: ReportWatermarkSchema },
     ]),
@@ -70,9 +77,9 @@ import { UsersService } from './users/users.service.js';
     NotificationsModule,
   ],
   controllers: [HealthController, TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController,
-    SupportConsoleController, SupportSessionController, SupportAccessController, SupportApprovalController, SupportStaffController],
+    SupportConsoleController, SupportSessionController, SupportAccessController, SupportApprovalController, SupportStaffController, AdminController],
   providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, ReportCacheService, AuthGuard,
-    RateLimiter, { provide: ErrorReporter, useClass: LogErrorReporter }, { provide: APP_FILTER, useClass: ReportingExceptionFilter }, BillingService, BillingSetupService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard],
+    RateLimiter, { provide: ErrorReporter, useClass: LogErrorReporter }, { provide: APP_FILTER, useClass: ReportingExceptionFilter }, BillingService, BillingSetupService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard, AdminConsoleGuard, AdminService, { provide: DnsLookup, useClass: NodeDnsLookup }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

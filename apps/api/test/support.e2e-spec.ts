@@ -1,5 +1,6 @@
 import { getConnectionToken } from '@nestjs/mongoose';
 import type { Connection } from 'mongoose';
+import { consoleTokenOf } from './console-helpers.js';
 import { ADMIN, startApp, tokenOf } from './helpers.js';
 
 describe('Banquet.ai support login', () => {
@@ -16,7 +17,8 @@ describe('Banquet.ai support login', () => {
     expect(login.body.sentTo).toBe('email');
     const code = t.otpIn(t.lastMessage(email).body);
     const verified = await t.http().post('/api/support/otp/verify').send({ otpToken: login.body.otpToken, code }).expect(200);
-    const token = verified.body.token as string;
+    const token = consoleTokenOf(verified);
+    expect(verified.body.token).toBeUndefined();
     await t.http().post('/api/support/sessions').auth(token, auth).send({ subdomain: 'helpme', reason: 'Checking a report' }).expect(403);
     await t.http().post('/api/support/change-password').auth(token, auth).send({ currentPassword: password, newPassword: 'Support2026x' }).expect(200);
     return token;
@@ -39,8 +41,8 @@ describe('Banquet.ai support login', () => {
 
   it('enters read-only with a reason, records edits, and tells the client', async () => {
     const token = (await t.http().post('/api/support/login').send({ email: 'agent@banquet.ai', password: 'Support2026x' }).expect(200)).body;
-    const console = (await t.http().post('/api/support/otp/verify')
-      .send({ otpToken: token.otpToken, code: t.otpIn(t.lastMessage('agent@banquet.ai').body) }).expect(200)).body.token as string;
+    const console = consoleTokenOf(await t.http().post('/api/support/otp/verify')
+      .send({ otpToken: token.otpToken, code: t.otpIn(t.lastMessage('agent@banquet.ai').body) }).expect(200));
 
     await t.http().post('/api/support/sessions').auth(console, auth).send({ subdomain: 'helpme', reason: 'short' }).expect(400);
     const s = (await t.http().post('/api/support/sessions').auth(console, auth)
@@ -91,8 +93,8 @@ describe('Banquet.ai support login', () => {
   it('asks the client first when the client chooses so; only a manager can override', async () => {
     await t.http().put('/api/support-access').set('Host', host).auth(entp, auth).send({ supportAccess: 'ask' }).expect(200);
     const login = (await t.http().post('/api/support/login').send({ email: 'agent@banquet.ai', password: 'Support2026x' }).expect(200)).body;
-    const agent = (await t.http().post('/api/support/otp/verify')
-      .send({ otpToken: login.otpToken, code: t.otpIn(t.lastMessage('agent@banquet.ai').body) }).expect(200)).body.token as string;
+    const agent = consoleTokenOf(await t.http().post('/api/support/otp/verify')
+      .send({ otpToken: login.otpToken, code: t.otpIn(t.lastMessage('agent@banquet.ai').body) }).expect(200));
 
     const asked = (await t.http().post('/api/support/sessions').auth(agent, auth)
       .send({ subdomain: 'helpme', reason: 'Bill totals look wrong' }).expect(201)).body;
@@ -116,8 +118,8 @@ describe('Banquet.ai support login', () => {
 
   it('lets the client answer from the emailed link, once, before it expires', async () => {
     const login = (await t.http().post('/api/support/login').send({ email: 'agent@banquet.ai', password: 'Support2026x' }).expect(200)).body;
-    const agent = (await t.http().post('/api/support/otp/verify')
-      .send({ otpToken: login.otpToken, code: t.otpIn(t.lastMessage('agent@banquet.ai').body) }).expect(200)).body.token as string;
+    const agent = consoleTokenOf(await t.http().post('/api/support/otp/verify')
+      .send({ otpToken: login.otpToken, code: t.otpIn(t.lastMessage('agent@banquet.ai').body) }).expect(200));
     const ask = (reason: string) => t.http().post('/api/support/sessions').auth(agent, auth).send({ subdomain: 'helpme', reason }).expect(201);
     const linkIn = (body: string) => /support-approval\?token=([0-9a-f]{64})/.exec(body)![1];
 
@@ -159,8 +161,8 @@ describe('Banquet.ai support login', () => {
   it('ends after the time limit', async () => {
     const db = t.app.get<Connection>(getConnectionToken());
     const login = (await t.http().post('/api/support/login').send({ email: 'agent@banquet.ai', password: 'Support2026x' }).expect(200)).body;
-    const agent = (await t.http().post('/api/support/otp/verify')
-      .send({ otpToken: login.otpToken, code: t.otpIn(t.lastMessage('agent@banquet.ai').body) }).expect(200)).body.token as string;
+    const agent = consoleTokenOf(await t.http().post('/api/support/otp/verify')
+      .send({ otpToken: login.otpToken, code: t.otpIn(t.lastMessage('agent@banquet.ai').body) }).expect(200));
     const sessions = (await t.http().get('/api/support/sessions').auth(agent, auth).expect(200)).body as { id: string; status: string }[];
     const live = sessions.find((s) => s.status === 'active')!;
     const inside = (await t.http().post(`/api/support/sessions/${live.id}/enter`).auth(agent, auth).send({ activity: 'operations' }).expect(200)).body.token;
