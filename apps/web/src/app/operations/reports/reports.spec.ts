@@ -82,7 +82,7 @@ describe('Reports', () => {
       byProperty: [{ propertyId: 'p1', currency: 'INR', ...sum }],
       byAType: [{ key: 'package', label: 'Packages', taxable: 104500, tax: 0, total: 104500 }],
       bySource: [{ key: 'package', label: 'Packages', taxable: 104500, tax: 0, total: 104500 }],
-      taxes: [],
+      taxes: [], billCount: 1, billLimit: 500,
       bills: [{ id: 'b1', number: 'B/2030-31/000001', propertyId: 'p1', currency: 'INR', reservationId: 'r1', reservationNumber: 'R-000001',
         hostName: 'Menon Family', functionDate: '2030-07-01', status: 'partiallySettled', total: 112000, collected: 80000, balance: 32000 }],
     });
@@ -91,17 +91,53 @@ describe('Reports', () => {
     expect(el.textContent).toContain('B/2030-31/000001');
     expect(el.textContent).toContain('Part paid');
     expect(el.querySelector('a[href="/operations/billing/b1"]')).not.toBeNull();
+    expect(el.textContent).not.toContain('Showing the first');
 
     // With nothing billed there is no currency, so the label has no empty brackets.
     fixture.componentInstance['load']();
     http.expectOne((r) => r.url === '/api/reports/revenue').flush({
       from: '2030-07-01', to: '2030-07-31', propertyId: 'p1', properties: [], currency: null, mixedCurrencies: false,
       total: { ...sum, bills: 0, amount: 0, taxable: 0, total: 0, collected: 0, balance: 0 },
-      byProperty: [], byAType: [], bySource: [], taxes: [], bills: [],
+      byProperty: [], byAType: [], bySource: [], taxes: [], billCount: 0, billLimit: 500, bills: [],
     });
     await settle(fixture);
     expect(el.textContent).toContain('Revenue before tax');
     expect(el.textContent).not.toContain('()');
+    http.verify();
+  });
+
+  it('says when the bill list is cut short, and keeps function sheets to 62 days', async () => {
+    const fixture = TestBed.createComponent(Reports);
+    fixture.detectChanges();
+    const http = TestBed.inject(HttpTestingController);
+    http.expectOne((r) => r.url === '/api/masters/property').flush([{ id: 'p1', active: true, name: 'Prime Residency' }]);
+    await settle(fixture);
+    const req = http.expectOne((r) => r.url === '/api/reports/forecast');
+    req.flush(forecast(req.request.params.get('from')!));
+    await settle(fixture);
+    const el = fixture.nativeElement as HTMLElement;
+    const tab = (label: string) => [...el.querySelectorAll<HTMLButtonElement>('.tabs button')].find((b) => b.textContent?.includes(label))!.click();
+
+    tab('Revenue');
+    const sum = { bills: 900, amount: 9e6, discount: 0, taxable: 9e6, taxTotal: 0, roundOff: 0, total: 9e6, collected: 0, balance: 9e6 };
+    const bill = (i: number) => ({ id: `b${i}`, number: `B/${i}`, propertyId: 'p1', currency: 'INR', reservationId: `r${i}`, reservationNumber: `R-${i}`,
+      hostName: 'Host', functionDate: '2030-07-01', status: 'finalised', total: 10000, collected: 0, balance: 10000 });
+    http.expectOne((r) => r.url === '/api/reports/revenue').flush({
+      from: '2030-01-01', to: '2030-12-31', propertyId: 'p1', properties: [], currency: 'INR', mixedCurrencies: false, total: sum,
+      byProperty: [{ propertyId: 'p1', currency: 'INR', ...sum }], byAType: [], bySource: [], taxes: [],
+      billCount: 900, billLimit: 500, bills: Array.from({ length: 500 }, (_, i) => bill(i)),
+    });
+    await settle(fixture);
+    expect(el.textContent).toContain('Showing the first 500 of 900 bills');
+
+    tab('Function sheets');
+    const sheets = http.expectOne((r) => r.url === '/api/reports/function-sheets');
+    sheets.flush({ from: '', to: '', propertyId: 'p1', properties: [], rows: [] });
+    await settle(fixture);
+    fixture.componentInstance['setRange']('2030-01-01', '2030-12-31');
+    const year = http.expectOne((r) => r.url === '/api/reports/function-sheets');
+    expect(year.request.params.get('to')).toBe('2030-03-03');
+    year.flush({ from: '2030-01-01', to: '2030-03-03', propertyId: 'p1', properties: [], rows: [] });
     http.verify();
   });
 });

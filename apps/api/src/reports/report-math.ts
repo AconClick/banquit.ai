@@ -78,8 +78,8 @@ export function functionDate(r: Pick<ReservationLike, 'slots'>): string {
 }
 
 const rangeOf = (from: string, to: string) => ({ start: `${from}T00:00`, end: `${addDays(to, 1)}T00:00` });
-const hours = (minutes: number) => Math.round((minutes / 60) * 10) / 10;
-const percent = (part: number, whole: number) => (whole ? Math.round((part / whole) * 1000) / 10 : 0);
+export const hours = (minutes: number) => Math.round((minutes / 60) * 10) / 10;
+export const percent = (part: number, whole: number) => (whole ? Math.round((part / whole) * 1000) / 10 : 0);
 
 /** Bookings whose function date falls in the range, counted by status. */
 export function bookingsByStatus(reservations: ReservationLike[], from: string, to: string) {
@@ -168,16 +168,21 @@ export function outcomeOf(r: Pick<ReservationLike, 'status' | 'history'>): Outco
  * bookings received; open ones are shown apart so a young pipeline is not read as lost.
  */
 export function enquiryConversion(reservations: ReservationLike[], functionTypeNames: Map<string, string>) {
-  const empty = (): Record<Outcome, number> => ({ converted: 0, open: 0, lost: 0, cancelledBeforeConfirm: 0, cancelledAfterConfirm: 0 });
-  const total = empty();
   const byType = new Map<string, Record<Outcome, number>>();
   for (const r of reservations) {
-    const o = outcomeOf(r);
-    total[o] += 1;
-    const row = byType.get(r.functionTypeId) ?? empty();
-    row[o] += 1;
+    const row = byType.get(r.functionTypeId) ?? noOutcomes();
+    row[outcomeOf(r)] += 1;
     byType.set(r.functionTypeId, row);
   }
+  return conversionReport(byType, functionTypeNames);
+}
+
+export const noOutcomes = (): Record<Outcome, number> => ({ converted: 0, open: 0, lost: 0, cancelledBeforeConfirm: 0, cancelledAfterConfirm: 0 });
+
+/** The conversion report from outcome counts per function type. */
+export function conversionReport(byType: Map<string, Record<Outcome, number>>, functionTypeNames: Map<string, string>) {
+  const total = noOutcomes();
+  for (const c of byType.values()) for (const o of Object.keys(total) as Outcome[]) total[o] += c[o];
   const summarise = (c: Record<Outcome, number>) => {
     const received = Object.values(c).reduce((a, b) => a + b, 0);
     const won = c.converted + c.cancelledAfterConfirm;
@@ -189,7 +194,7 @@ export function enquiryConversion(reservations: ReservationLike[], functionTypeN
       functionTypeId,
       functionType: functionTypeNames.get(functionTypeId) ?? 'Unknown',
       ...summarise(c),
-    })),
+    })).sort((a, b) => a.functionType.localeCompare(b.functionType) || a.functionTypeId.localeCompare(b.functionTypeId)),
   };
 }
 
@@ -353,8 +358,8 @@ export interface BillLike {
 export const REVENUE_BILL_STATUSES = ['finalised', 'partiallySettled', 'settled'] as const;
 
 const money = (n: number) => Math.round(n * 100) / 100;
-const A_TYPE_LABELS: Record<string, string> = { package: 'Packages', alacarte: 'Ala carte', services: 'Services' };
-const SOURCE_LABELS: Record<string, string> = {
+export const A_TYPE_LABELS: Record<string, string> = { package: 'Packages', alacarte: 'Ala carte', services: 'Services' };
+export const SOURCE_LABELS: Record<string, string> = {
   package: 'Packages', extra: 'Booked extras', running: 'Ordered during the function', hallHire: 'Hall hire', liquorLicence: 'Liquor licence',
 };
 
