@@ -5,7 +5,10 @@ import { Bill } from '../billing/bill.schema.js';
 import { MasterRecord } from '../masters/master-record.schema.js';
 import { addDays, isDate } from '../reservations/local-time.js';
 import { HallBlock, Reservation } from '../reservations/reservation.schema.js';
+import { ReportCacheService } from './report-cache.service.js';
 import * as math from './report-math.js';
+import { toBillLike, toLike } from './report-records.js';
+import * as summary from './report-summary.js';
 
 export interface ReportQuery {
   /** Empty means every property of the tenant (group view). */
@@ -16,12 +19,16 @@ export interface ReportQuery {
 
 const MAX_REPORT_DAYS = 366;
 const MAX_FORECAST_DAYS = 62;
-/** What the counting reports read; leaving out history and menus keeps a chain's yearly report light. */
-const SUMMARY_FIELDS = { number: 1, status: 1, propertyId: 1, hostName: 1, functionTypeId: 1, guaranteedPax: 1, expectedMaxPax: 1, actualPax: 1, slots: 1 } as const;
+/** Function sheets list every function, so they are for working days ahead, not a year. */
+const MAX_SHEET_DAYS = 62;
+/** The bill list under the Revenue totals shows this many bills, earliest first. */
+const REVENUE_BILL_LIMIT = 500;
 
 /**
- * Read-only reports over reservations and hall blocks. Every query is filtered by the tenant,
+ * Read-only reports over reservations, hall blocks and bills. Every query is filtered by the tenant,
  * and by the chosen property or the tenant's own properties, so no other tenant's data is read.
+ * The counting reports add up monthly summaries (ReportCacheService), so a chain's yearly report
+ * does not read every booking and bill each time.
  */
 @Injectable()
 export class ReportsService {
@@ -30,35 +37,30 @@ export class ReportsService {
     @InjectModel(HallBlock.name) private readonly blocks: Model<HallBlock>,
     @InjectModel(MasterRecord.name) private readonly masters: Model<MasterRecord>,
     @InjectModel(Bill.name) private readonly bills: Model<Bill>,
+    private readonly cache: ReportCacheService,
   ) {}
 
   async bookingsByStatus(tenantId: Types.ObjectId, q: ReportQuery) {
     const scope = await this.scope(tenantId, q, MAX_REPORT_DAYS);
-    const reservations = await this.reservationsInRange(tenantId, scope, SUMMARY_FIELDS);
-    return { ...this.header(scope), ...math.bookingsByStatus(reservations, scope.from, scope.to) };
+    const days = await this.cache.functionDays(tenantId, scope.propertyIds, scope.from, scope.to);
+    return { ...this.header(scope), ...summary.readBookingsByStatus(days, scope.from, scope.to) };
   }
 
   async hallOccupancy(tenantId: Types.ObjectId, q: ReportQuery) {
     const scope = await this.scope(tenantId, q, MAX_REPORT_DAYS);
-    const [reservations, blocks] = await Promise.all([this.reservationsInRange(tenantId, scope, SUMMARY_FIELDS), this.blocksInRange(tenantId, scope)]);
-    return { ...this.header(scope), rows: math.hallOccupancy(scope.halls, reservations, blocks, scope.from, scope.to) };
+    const [days, blocks] = await Promise.all([this.cache.functionDays(tenantId, scope.propertyIds, scope.from, scope.to), this.blocksInRange(tenantId, scope)]);
+    return { ...this.header(scope), rows: summary.readHallOccupancy(scope.halls, days, blocks, scope.from, scope.to) };
   }
 
+  /** Bookings taken in the range (UTC dates), whatever their function date. */
   async enquiryConversion(tenantId: Types.ObjectId, q: ReportQuery) {
     const scope = await this.scope(tenantId, q, MAX_REPORT_DAYS);
-    // Bookings taken in the range, whatever their function date.
-    const docs = await this.reservations
-      .find({
-        tenantId,
-        propertyId: { $in: scope.propertyIds },
-        createdAt: { $gte: new Date(`${scope.from}T00:00:00Z`), $lt: new Date(`${addDays(scope.to, 1)}T00:00:00Z`) },
-      })
-      .lean();
-    return { ...this.header(scope), ...math.enquiryConversion(docs.map(toLike), await this.names(tenantId, 'functionType')) };
+    const [days, names] = await Promise.all([this.cache.conversionDays(tenantId, scope.propertyIds, scope.from, scope.to), this.names(tenantId, 'functionType')]);
+    return { ...this.header(scope), ...summary.readEnquiryConversion(days, names, scope.from, scope.to) };
   }
 
   async functionSheets(tenantId: Types.ObjectId, q: ReportQuery) {
-    const scope = await this.scope(tenantId, q, MAX_REPORT_DAYS);
+    const scope = await this.scope(tenantId, q, MAX_SHEET_DAYS);
     const reservations = await this.reservationsInRange(tenantId, scope);
     const hallNames = new Map(scope.halls.map((h) => [h.id, h.name]));
     return { ...this.header(scope), rows: math.functionSheets(reservations, hallNames, await this.names(tenantId, 'functionType'), scope.from, scope.to) };
@@ -74,27 +76,35 @@ export class ReportsService {
     };
   }
 
-  /** Revenue from final bills, by function date. Reads bills; never changes them. */
+  /**
+   * Revenue from final bills, by function date: totals from the monthly summaries, and the
+   * earliest bills of the range listed. Reads bills; never changes them.
+   */
   async revenue(tenantId: Types.ObjectId, q: ReportQuery) {
     const scope = await this.scope(tenantId, q, MAX_REPORT_DAYS);
+    const filter = {
+      tenantId,
+      propertyId: { $in: scope.propertyIds },
+      status: { $in: [...math.REVENUE_BILL_STATUSES] },
+      functionDate: { $gte: scope.from, $lte: scope.to },
+    };
+    const [months, edge] = await Promise.all([
+      this.cache.revenueDays(tenantId, scope.propertyIds, scope.from, scope.to),
+      // The function date of the last bill listed, read from the index alone.
+      this.bills.find(filter).sort({ functionDate: 1 }).skip(REVENUE_BILL_LIMIT - 1).limit(1).select({ _id: 0, functionDate: 1 }).lean(),
+    ]);
     const docs = await this.bills
-      .find({
-        tenantId,
-        propertyId: { $in: scope.propertyIds },
-        status: { $in: [...math.REVENUE_BILL_STATUSES] },
-        functionDate: { $gte: scope.from, $lte: scope.to },
-      })
-      // The stored totals carry what the report needs; the editable lines and history are not read.
+      .find({ ...filter, functionDate: { $gte: scope.from, $lte: edge[0]?.functionDate ?? scope.to } })
+      // The stored totals carry what the list needs; the editable lines and history are not read.
       .select({ lines: 0, history: 0, taxRates: 0 })
       .lean();
-    const bills = docs
-      .filter((b) => b.totals)
-      .map((b) => ({
-        id: String(b._id), number: b.number ?? '', propertyId: b.propertyId, reservationId: b.reservationId,
-        reservationNumber: b.reservationNumber, hostName: b.hostName, functionDate: b.functionDate, status: b.status,
-        totals: b.totals as unknown as math.BillLike['totals'], advances: b.advances, payments: b.payments,
-      }));
-    return { ...this.header(scope), ...math.revenue(bills, scope.currencies, scope.from, scope.to) };
+    const bills = math.revenue(docs.filter((b) => b.totals).map(toBillLike), scope.currencies, scope.from, scope.to).bills.slice(0, REVENUE_BILL_LIMIT);
+    return {
+      ...this.header(scope),
+      ...summary.readRevenue(months, scope.currencies, scope.propertyIds, scope.from, scope.to),
+      bills,
+      billLimit: REVENUE_BILL_LIMIT,
+    };
   }
 
   /** Checks the dates and property, and loads the halls the report covers. */
@@ -133,12 +143,12 @@ export class ReportsService {
   }
 
   /** Reservations with any hall slot touching the range. */
-  private async reservationsInRange(tenantId: Types.ObjectId, scope: { from: string; to: string; propertyIds: string[] }, fields: Record<string, 0 | 1> = { receipts: 0, notes: 0, cancellation: 0 }) {
+  private async reservationsInRange(tenantId: Types.ObjectId, scope: { from: string; to: string; propertyIds: string[] }) {
     const start = `${scope.from}T00:00`;
     const end = `${addDays(scope.to, 1)}T00:00`;
     const docs = await this.reservations
       .find({ tenantId, propertyId: { $in: scope.propertyIds }, slots: { $elemMatch: { end: { $gt: start }, start: { $lt: end } } } })
-      .select(fields)
+      .select({ receipts: 0, notes: 0, cancellation: 0 })
       .lean();
     // Sorted here: asking the database to sort by number makes it walk every booking of the tenant.
     docs.sort((a, b) => (a.number < b.number ? -1 : a.number > b.number ? 1 : 0));
@@ -156,26 +166,4 @@ export class ReportsService {
     const records = await this.masters.find({ tenantId, kind }).lean();
     return new Map(records.map((r) => [String(r._id), String(r.values.description)]));
   }
-}
-
-type LeanReservation = Reservation & { _id: Types.ObjectId; createdAt?: Date };
-
-function toLike(r: LeanReservation): math.ReservationLike {
-  return {
-    id: String(r._id),
-    number: r.number,
-    status: r.status,
-    propertyId: r.propertyId,
-    hostName: r.hostName,
-    functionTypeId: r.functionTypeId,
-    seatingStyleId: r.seatingStyleId ?? null,
-    guaranteedPax: r.guaranteedPax,
-    expectedMaxPax: r.expectedMaxPax,
-    actualPax: r.actualPax ?? null,
-    slots: r.slots.map((s) => ({ hallId: s.hallId, start: s.start, end: s.end })),
-    history: (r.history ?? []).map((h) => ({ from: h.from, to: h.to, at: h.at })),
-    createdAt: r.createdAt,
-    packages: (r.packages ?? []).map((p) => ({ packageId: p.packageId, name: p.name, pax: p.pax, choices: [...p.choices] })),
-    extras: (r.extras ?? []).map((e) => ({ itemId: e.itemId, name: e.name, aType: e.aType, qty: e.qty })),
-  };
 }
