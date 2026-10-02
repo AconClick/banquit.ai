@@ -12,6 +12,7 @@ import {
   BillLine,
   BillingApi,
   BillingView,
+  CreditableLine,
   Discount,
   LineInput,
   LineSource,
@@ -84,6 +85,11 @@ export class BillPage implements OnInit {
   protected payment = { kind: 'payment' as 'payment' | 'refund', amount: null as number | null, mode: 'cash' as PaymentMode, reference: '', date: today() };
   protected voidReason = '';
   protected confirmingVoid = false;
+  /** The issue-a-credit-note form: open lines while it is shown. */
+  protected readonly crediting = signal<CreditableLine[] | null>(null);
+  protected credit = { reason: '', full: false, amounts: {} as Record<string, number | null> };
+  protected cancellingCredit: string | null = null;
+  protected cancelCreditReason = '';
 
   protected readonly bill = computed(() => this.view()?.bill ?? null);
   protected readonly isDraft = computed(() => this.bill()?.status === 'draft');
@@ -134,6 +140,7 @@ export class BillPage implements OnInit {
       taxInclusive: l.taxInclusive, taxIds: [...l.taxIds], discountType: l.lineDiscount?.type ?? 'percent',
       discountValue: l.lineDiscount?.value ?? null, discountReason: l.lineDiscount?.reason ?? '', remark: l.remark, priced: l, open: false,
     })));
+    if (!this.payment.amount) this.payment.kind = bill.balance < 0 ? 'refund' : 'payment';
     this.billDiscount = { type: bill.billDiscount?.type ?? 'percent', value: bill.billDiscount?.value ?? null, reason: bill.billDiscount?.reason ?? '' };
   }
 
@@ -283,6 +290,43 @@ export class BillPage implements OnInit {
       this.voidReason = '';
       await this.load();
     }
+  }
+
+  protected async startCredit() {
+    const bill = this.bill();
+    if (!bill) return;
+    this.error.set(null);
+    try {
+      const { lines } = await this.api.creditable(bill.id);
+      this.credit = { reason: '', full: false, amounts: {} };
+      this.crediting.set(lines);
+    } catch (err) {
+      this.error.set(errorMessage(err));
+    }
+  }
+
+  protected creditTotal() {
+    return Object.values(this.credit.amounts).reduce<number>((s, a) => s + (Number(a) || 0), 0);
+  }
+
+  protected issueCredit() {
+    const bill = this.bill();
+    if (!bill) return;
+    const c = this.credit;
+    const lines = Object.entries(c.amounts).filter(([, a]) => Number(a) > 0).map(([lineId, a]) => ({ lineId, amount: Number(a) }));
+    return this.run(async () => {
+      const res = await this.api.issueCredit(bill.id, c.full ? { reason: c.reason, full: true } : { reason: c.reason, lines });
+      this.crediting.set(null);
+      return res.bill;
+    }, 'Credit note issued. Refund the guest from Settlement if money is now due back.');
+  }
+
+  protected cancelCredit(id: string) {
+    return this.run(async () => {
+      const res = await this.api.cancelCredit(id, this.cancelCreditReason);
+      this.cancellingCredit = null;
+      return res.bill;
+    }, 'Credit note cancelled.');
   }
 
   protected bookingStatus(s: string) {

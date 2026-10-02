@@ -66,6 +66,11 @@ export interface Bill {
   advanceReceipts: { number: string; date: string; amount: number; mode: string }[];
   payments: { number: string; kind: 'payment' | 'refund'; date: string; amount: number; mode: PaymentMode; reference: string }[];
   history: { action: string; at: string; byUserId: string; note: string | null }[];
+  /** Date of the final bill at the property. */
+  date: string | null;
+  /** Credit notes issued (not cancelled), already taken off the balance. */
+  credited: number;
+  creditNotes: { id: string; number: string | null; date: string; total: number; status: 'issued' | 'cancelled' }[];
   lines: BillLine[];
   amount: number;
   discount: number;
@@ -118,6 +123,39 @@ export interface BillListRow {
   currency: string | null;
 }
 
+export interface CreditNote {
+  id: string;
+  number: string;
+  date: string;
+  status: 'issued' | 'cancelled';
+  reason: string;
+  cancelReason: string | null;
+  billId: string;
+  billNumber: string;
+  billDate: string;
+  reservationId: string;
+  reservationNumber: string;
+  hostName: string;
+  propertyId: string;
+  currency: string;
+  decimals: number;
+  lines: { billLineId: string; label: string; aType: AType; taxable: number; taxes: TaxAmount[]; total: number }[];
+  taxable: number;
+  taxes: TaxAmount[];
+  taxTotal: number;
+  roundOff: number;
+  total: number;
+}
+
+/** Per bill line: charged, credited so far, and still open to credit. */
+export interface CreditableLine {
+  lineId: string;
+  label: string;
+  total: number;
+  credited: number;
+  open: number;
+}
+
 /** A line as sent to the server when saving a draft. */
 export interface LineInput {
   id?: string;
@@ -153,6 +191,13 @@ export class BillingApi {
   pay = (id: string, input: { kind: 'payment' | 'refund'; amount: number; mode: PaymentMode; date?: string; reference?: string }) =>
     firstValueFrom(this.http.post<Bill>(`/api/billing/bills/${id}/payments`, input));
   void = (id: string, reason: string) => firstValueFrom(this.http.post<Bill>(`/api/billing/bills/${id}/void`, { reason }));
+  creditable = (billId: string) =>
+    firstValueFrom(this.http.get<{ lines: CreditableLine[]; creditNotes: CreditNote[] }>(`/api/billing/bills/${billId}/credit-notes`));
+  issueCredit = (billId: string, input: { reason: string; full?: boolean; lines?: { lineId: string; amount: number }[] }) =>
+    firstValueFrom(this.http.post<{ creditNote: CreditNote; bill: Bill }>(`/api/billing/bills/${billId}/credit-notes`, input));
+  cancelCredit = (id: string, reason: string) =>
+    firstValueFrom(this.http.post<{ creditNote: CreditNote; bill: Bill }>(`/api/billing/credit-notes/${id}/cancel`, { reason }));
+  creditNote = (id: string) => firstValueFrom(this.http.get<CreditNote>(`/api/billing/credit-notes/${id}`));
 }
 
 /** 12,345.60 style (12,345.600 for a dinar), without a currency sign: the property's currency is shown once. */

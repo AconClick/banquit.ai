@@ -241,9 +241,10 @@ export class BillingService {
     );
     if (!locked) throw new ConflictException(CHANGED_ELSEWHERE);
     const { number } = await this.setup.take(tenantId, bill.propertyId, 'bill');
+    const date = await this.masters.propertyToday(tenantId, bill.propertyId);
     const done = (await this.bills.findOneAndUpdate(
       { _id: bill._id, tenantId },
-      { $set: { number }, $push: { history: { action: `Finalised as ${number}`, at: new Date(), byUserId: userId } }, $inc: { __v: 1 } },
+      { $set: { number, date }, $push: { history: { action: `Finalised as ${number}`, at: new Date(), byUserId: userId } }, $inc: { __v: 1 } },
       { returnDocument: 'after' },
     ))!;
     if (status === 'settled') await this.source.markBilled(tenantId, done.reservationId, userId, number);
@@ -275,11 +276,11 @@ export class BillingService {
       number: `${kind === 'refund' ? 'RF' : 'PY'}-${String(seq).padStart(6, '0')}`, kind, date, amount: round(input.amount),
       mode: input.mode, reference: text(input.reference, 100), byUserId: userId, at: new Date(),
     };
-    const after = this.balance({ advances: bill.advances, payments: [...bill.payments, payment], decimals: bill.decimals }, bill.totals!.total);
+    const after = this.balance({ advances: bill.advances, payments: [...bill.payments, payment], credits: bill.credits, decimals: bill.decimals }, bill.totals!.total);
     const status = this.statusFor(after, true);
     // Matching on the number of payments stops two people settling the same balance at once.
     const done = await this.bills.findOneAndUpdate(
-      { _id: bill._id, tenantId, status: bill.status, [`payments.${bill.payments.length}`]: { $exists: false } },
+      { _id: bill._id, tenantId, status: bill.status, [`payments.${bill.payments.length}`]: { $exists: false }, __v: bill.__v },
       {
         $push: { payments: payment, history: { action: `${kind === 'refund' ? 'Refund' : 'Payment'} ${payment.number}`, at: new Date(), byUserId: userId } },
         $set: { status },
@@ -301,8 +302,11 @@ export class BillingService {
     if (bill.payments.length > 0 || bill.status === 'settled') {
       throw new BadRequestException('Payments have been taken against this bill, so it cannot be voided. Refund them first.');
     }
+    if (bill.credits.some((c) => c.status === 'issued')) {
+      throw new BadRequestException('Credit notes have been issued against this bill, so it cannot be voided. Cancel them first.');
+    }
     const done = await this.bills.findOneAndUpdate(
-      { _id: bill._id, tenantId, status: bill.status, payments: { $size: 0 } },
+      { _id: bill._id, tenantId, status: bill.status, payments: { $size: 0 }, __v: bill.__v },
       {
         $set: { status: 'void', voidReason: why },
         $unset: { openFor: 1 },
@@ -472,12 +476,18 @@ export class BillingService {
     return rounder(decimals)(payments.reduce((s, p) => s + (p.kind === 'refund' ? -p.amount : p.amount), 0));
   }
 
-  private balance(bill: { advances: { amount: number }[]; payments: { kind: string; amount: number }[]; decimals?: number }, total: number) {
-    const dp = bill.decimals ?? 2;
-    return rounder(dp)(total - bill.advances.reduce((s, a) => s + a.amount, 0) - this.paidOf(bill.payments, dp));
+  /** Credit notes issued (not cancelled) against the bill. */
+  credited(bill: { credits?: { total: number; status: string }[]; decimals?: number }) {
+    return rounder(bill.decimals ?? 2)((bill.credits ?? []).filter((c) => c.status === 'issued').reduce((s, c) => s + c.total, 0));
   }
 
-  private statusFor(balance: number, anyMoney: boolean): BillStatus {
+  /** Still to collect: total less advances, payments (net of refunds) and credit notes. Negative when money is due back. */
+  balance(bill: { advances: { amount: number }[]; payments: { kind: string; amount: number }[]; credits?: { total: number; status: string }[]; decimals?: number }, total: number) {
+    const dp = bill.decimals ?? 2;
+    return rounder(dp)(total - bill.advances.reduce((s, a) => s + a.amount, 0) - this.paidOf(bill.payments, dp) - this.credited(bill));
+  }
+
+  statusFor(balance: number, anyMoney: boolean): BillStatus {
     if (balance === 0) return 'settled';
     return anyMoney ? 'partiallySettled' : 'finalised';
   }
@@ -507,8 +517,9 @@ export class BillingService {
       ? round((booking?.receipts ?? []).reduce((s, r) => s + r.amount, 0))
       : round(bill.advances.reduce((s, a) => s + a.amount, 0));
     const paid = this.paidOf(bill.payments, decimals);
+    const credited = this.credited(bill);
     if (bill.totals) {
-      totals = { ...bill.totals, advances, paid, balance: round(bill.totals.total - advances - paid), warnings: [] };
+      totals = { ...bill.totals, advances, paid, balance: round(bill.totals.total - advances - paid - credited), warnings: [] };
     } else {
       totals = calculateBill(this.engineInput(bill, await this.taxRates(tenantId, bill), booking, advances, paid));
     }
@@ -531,6 +542,9 @@ export class BillingService {
         ? (booking?.receipts ?? []).map((r) => ({ number: r.number, date: r.date, amount: r.amount, mode: r.mode }))
         : bill.advances.map((a) => ({ number: a.number, date: a.date, amount: a.amount, mode: a.mode })),
       payments: bill.payments.map((p) => ({ number: p.number, kind: p.kind, date: p.date, amount: p.amount, mode: p.mode, reference: p.reference })),
+      date: bill.date ?? null,
+      credited,
+      creditNotes: bill.credits.map((c) => ({ id: c.id, number: c.number ?? null, date: c.date, total: c.total, status: c.status })),
       history: bill.history.map((h) => ({ action: h.action, at: h.at, byUserId: h.byUserId, note: h.note ?? null })),
       ...this.withLineDetails(totals, bill.lines),
     };

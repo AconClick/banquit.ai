@@ -9,6 +9,8 @@ import { AuthService } from './auth/auth.service.js';
 import { Bill, BillSchema } from './billing/bill.schema.js';
 import { BillingSetup, BillingSetupSchema } from './billing/billing-setup.schema.js';
 import { BillingSetupService } from './billing/billing-setup.service.js';
+import { CreditNote, CreditNoteSchema } from './billing/credit-note.schema.js';
+import { CreditNotesService } from './billing/credit-notes.service.js';
 import { BillingController } from './billing/billing.controller.js';
 import { BillingService } from './billing/billing.service.js';
 import { BOOKING_SOURCE, ReservationBookingSource } from './billing/booking-source.js';
@@ -65,6 +67,7 @@ import { UsersService } from './users/users.service.js';
       { name: PropertySettings.name, schema: PropertySettingsSchema },
       { name: Bill.name, schema: BillSchema },
       { name: BillingSetup.name, schema: BillingSetupSchema },
+      { name: CreditNote.name, schema: CreditNoteSchema },
       { name: SupportUser.name, schema: SupportUserSchema },
       { name: SupportSession.name, schema: SupportSessionSchema },
       { name: Plan.name, schema: PlanSchema },
@@ -79,7 +82,7 @@ import { UsersService } from './users/users.service.js';
   controllers: [HealthController, TenantsController, PlatformController, AuthController, RolesController, UsersController, MastersController, ReservationsController, PricingController, ReportsController, BillingController,
     SupportConsoleController, SupportSessionController, SupportAccessController, SupportApprovalController, SupportStaffController, AdminController],
   providers: [TenantsService, RolesService, UsersService, AuthService, ProvisioningService, MastersService, PricingService, BookingDetailsService, ReservationsService, ReportsService, ReportCacheService, AuthGuard,
-    RateLimiter, { provide: ErrorReporter, useClass: LogErrorReporter }, { provide: APP_FILTER, useClass: ReportingExceptionFilter }, BillingService, BillingSetupService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard, AdminConsoleGuard, AdminService, { provide: DnsLookup, useClass: NodeDnsLookup }],
+    RateLimiter, { provide: ErrorReporter, useClass: LogErrorReporter }, { provide: APP_FILTER, useClass: ReportingExceptionFilter }, BillingService, BillingSetupService, CreditNotesService, { provide: BOOKING_SOURCE, useClass: ReservationBookingSource }, SupportService, SupportConsoleGuard, AdminConsoleGuard, AdminService, { provide: DnsLookup, useClass: NodeDnsLookup }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
