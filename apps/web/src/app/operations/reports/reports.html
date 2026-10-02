@@ -261,9 +261,9 @@
             @for (p of r.byProperty; track p.propertyId) {
               <tr>
                 <td>{{ propertyNames().get(p.propertyId) }}</td><td>{{ p.currency }}</td><td class="num">{{ p.bills }}</td>
-                <td class="num">{{ money(p.taxable) }}</td><td class="num">{{ money(p.taxTotal) }}</td><td class="num">{{ money(p.total) }}</td>
-                <td class="num">{{ money(p.creditNotes.total) }}</td><td class="num">{{ money(p.net.total) }}</td>
-                <td class="num">{{ money(p.collected) }}</td><td class="num">{{ money(p.balance) }}</td>
+                <td class="num">{{ money(p.taxable, p.currency) }}</td><td class="num">{{ money(p.taxTotal, p.currency) }}</td><td class="num">{{ money(p.total, p.currency) }}</td>
+                <td class="num">{{ money(p.creditNotes.total, p.currency) }}</td><td class="num">{{ money(p.net.total, p.currency) }}</td>
+                <td class="num">{{ money(p.collected, p.currency) }}</td><td class="num">{{ money(p.balance, p.currency) }}</td>
               </tr>
             }
           </tbody>
@@ -287,7 +287,7 @@
               <td><a [routerLink]="['/operations/bookings', b.reservationId]">{{ b.reservationNumber }}</a></td>
               <td>{{ b.hostName }}</td>@if (allProperties()) { <td>{{ propertyNames().get(b.propertyId) }}</td> }
               <td>{{ billStatusLabels[b.status] ?? b.status }}</td>
-              <td class="num">{{ b.currency }} {{ money(b.total) }}</td><td class="num">{{ money(b.collected) }}</td><td class="num">{{ money(b.credited) }}</td><td class="num">{{ money(b.balance) }}</td>
+              <td class="num">{{ b.currency }} {{ money(b.total, b.currency) }}</td><td class="num">{{ money(b.collected, b.currency) }}</td><td class="num">{{ money(b.credited, b.currency) }}</td><td class="num">{{ money(b.balance, b.currency) }}</td>
             </tr>
           } @empty {
             <tr><td colspan="10" class="muted">No final bills for functions in this range.</td></tr>

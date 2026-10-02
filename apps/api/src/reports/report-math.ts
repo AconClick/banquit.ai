@@ -1,3 +1,4 @@
+import { roundTo } from '../pricing/money.js';
 import type { ReservationStatus } from '../reservations/reservation.schema.js';
 import { addDays, addMinutes, toMinutes } from '../reservations/local-time.js';
 
@@ -362,7 +363,11 @@ export const creditedOf = (b: Pick<BillLike, 'credits'>) => (b.credits ?? []).re
 /** Bills that count as revenue: final, whether or not they are paid. Drafts and void bills do not. */
 export const REVENUE_BILL_STATUSES = ['finalised', 'partiallySettled', 'settled'] as const;
 
-const money = (n: number) => Math.round(n * 100) / 100;
+/**
+ * Rounds a sum of amounts. Amounts carry at most 3 decimals (KWD, BHD, OMR), so a sum rounded
+ * to 3 drops only floating-point noise and keeps every currency's own decimals.
+ */
+const money = (n: number) => roundTo(n, 3);
 export const A_TYPE_LABELS: Record<string, string> = { package: 'Packages', alacarte: 'Ala carte', services: 'Services' };
 export const SOURCE_LABELS: Record<string, string> = {
   package: 'Packages', extra: 'Booked extras', running: 'Ordered during the function', hallHire: 'Hall hire', liquorLicence: 'Liquor licence',
